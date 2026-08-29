@@ -48,7 +48,7 @@ class LLMArticleExtractor:
         """Use the configured custom template when present, else the default."""
         custom = prompt_template("llm_extract")
         template = custom if custom is not None else self.DEFAULT_PROMPT_TEMPLATE
-        return template.format(content=content)
+        return template.replace("{content}", content)
 
     async def extract(self, html_content: str | bytes, *, url: str | None = None) -> tuple[bool, str]:
         """Extract core article markdown using LLM.

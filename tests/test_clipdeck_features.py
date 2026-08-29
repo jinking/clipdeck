@@ -195,3 +195,53 @@ def test_new_env_var_wins_over_legacy(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("CLIPDECK_DATA", str(tmp_path / "new"))
     from clipdeck.acquisition.main import _env
     assert _env("CLIPDECK_DATA", legacy="SCI_ACQUISITION_DATA") == str(tmp_path / "new")
+
+
+def test_decode_html_strips_utf8_bom() -> None:
+    bom_html = b"\xef\xbb\xbf<html><body><p>\xe6\xb5\x8b\xe8\xaf\x95\xe6\x96\x87\xe6\x9c\xac</p></body></html>"
+    decoded = decode_html(bom_html)
+    assert not decoded.startswith("\ufeff")
+    assert "测试文本" in decoded
+
+
+def test_custom_llm_prompt_with_json_curlies_does_not_crash(tmp_path: Path, monkeypatch) -> None:
+    prompt_file = tmp_path / "custom_prompt.txt"
+    prompt_file.write_text("提取如下内容并输出 JSON 格式 {\"title\": \"xxx\"}：\n{content}", encoding="utf-8")
+
+    config = tmp_path / "profiles.json"
+    config.write_text(json.dumps({"llm_extract_prompt_path": str(prompt_file)}), encoding="utf-8")
+
+    monkeypatch.setenv("CLIPDECK_SITE_PROFILES", str(config))
+    site_profiles.reload_profiles()
+    try:
+        from clipdeck.ingestion.llm.extractor import LLMArticleExtractor
+        extractor = LLMArticleExtractor(api_key="test-key")
+        built = extractor._build_prompt("这是文章正文")
+        assert "这是文章正文" in built
+        assert "{\"title\": \"xxx\"}" in built
+    finally:
+        monkeypatch.delenv("CLIPDECK_SITE_PROFILES")
+        site_profiles.reload_profiles()
+
+
+@pytest.mark.asyncio
+async def test_acquisition_service_concurrency_semaphore(tmp_path: Path) -> None:
+    from clipdeck.acquisition.domain import AcquisitionInput, SourceKind
+    from clipdeck.acquisition.repository import SQLiteRepository
+    from clipdeck.acquisition.service import AcquisitionService
+    from clipdeck.acquisition.storage import LocalBlobStore
+
+    repo = SQLiteRepository(tmp_path / "acq.db")
+    await repo.initialize()
+    blob = LocalBlobStore(tmp_path / "blobs")
+    service = AcquisitionService(repository=repo, blob_store=blob, max_concurrency=2)
+    assert service._semaphore._value == 2
+
+    task1 = await service.submit(AcquisitionInput(source_kind=SourceKind.TEXT, text="hello 1"))
+    task2 = await service.submit(AcquisitionInput(source_kind=SourceKind.TEXT, text="hello 2"))
+    asset1 = await service.execute(task1.task_id)
+    asset2 = await service.execute(task2.task_id)
+    assert asset1 is not None
+    assert asset2 is not None
+    await repo.close()
+

@@ -113,8 +113,10 @@ def create_app(data_root: str | Path | None = None, *, mineru_token: str | None 
     async def lifespan(app: FastAPI):
         await repository.initialize()
         await ingestion_repository.initialize()
+        max_concurrency = int(_env("CLIPDECK_MAX_CONCURRENT_ACQUISITIONS", default="5"))
         app.state.service = AcquisitionService(
             repository=repository, blob_store=blob_store, resolver=resolver,
+            max_concurrency=max_concurrency,
         )
         app.state.ingestion_repository = ingestion_repository
         app.state.ingestion_service = ingestion_service

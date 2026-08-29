@@ -34,7 +34,9 @@ def evidence_title(view_dir: str | Path) -> str | None:
     if text:
         match = _TITLE_RE.search(text)
         if match:
-            return match.group(1).strip().strip('"')
+            extracted = match.group(1).strip().strip('"').strip("'")
+            if extracted and extracted != "null":
+                return extracted
     content = _read_text(root / "content.md")
     if content:
         match = _HEADING_RE.search(content)
@@ -64,7 +66,10 @@ def search(
     results: list[dict] = []
     try:
         content_files = sorted(
-            (path for path in root.rglob("content.md") if _viewable(path)),
+            (
+                path for path in root.rglob("content.md")
+                if _viewable(path) and (evidence_ids is None or path.parent.name in evidence_ids)
+            ),
             key=lambda path: path.stat().st_mtime,
             reverse=True,
         )

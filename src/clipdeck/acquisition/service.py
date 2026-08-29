@@ -35,12 +35,15 @@ class AcquisitionService:
         classifier: ResourceClassifier | None = None,
         resolver: ProviderResolver | None = None,
         max_attempts: int = 3,
+        max_concurrency: int = 5,
     ):
         self.repository = repository
         self.blob_store = blob_store
         self.classifier = classifier or ResourceClassifier()
         self.resolver = resolver or ProviderResolver()
         self.max_attempts = max_attempts
+        self.max_concurrency = max_concurrency
+        self._semaphore = asyncio.Semaphore(max(1, max_concurrency))
 
     async def submit(self, request: AcquisitionInput) -> AcquisitionTask:
         staged_blob: BlobRef | None = None
@@ -95,6 +98,10 @@ class AcquisitionService:
         return task
 
     async def execute(self, task_id: UUID) -> RawAsset | None:
+        async with self._semaphore:
+            return await self._execute_impl(task_id)
+
+    async def _execute_impl(self, task_id: UUID) -> RawAsset | None:
         task = await self.repository.get_task(task_id)
         if task is None:
             raise KeyError(f"Task {task_id} not found")

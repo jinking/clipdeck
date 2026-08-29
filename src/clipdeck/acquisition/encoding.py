@@ -38,7 +38,7 @@ def detect_encoding(data: bytes, content_type: str | None = None) -> str | None:
         if match:
             return match.group(1)
 
-    meta_match = _META_CHARSET_RE.search(data[:4096])
+    meta_match = _META_CHARSET_RE.search(data[:8192])
     if meta_match:
         return meta_match.group(1).decode("ascii", errors="ignore")
 
@@ -60,8 +60,10 @@ def decode_html(data: bytes | str, content_type: str | None = None) -> str:
 
     encoding = detect_encoding(data, content_type)
     if encoding:
+        normalized = encoding.lower().replace("-", "").replace("_", "")
+        effective_encoding = "utf-8-sig" if normalized in {"utf8", "utf8sig"} else encoding
         try:
-            return data.decode(encoding, errors="replace")
+            return data.decode(effective_encoding, errors="replace")
         except (LookupError, UnicodeError):
             pass
-    return data.decode("utf-8", errors="replace")
+    return data.decode("utf-8-sig", errors="replace")

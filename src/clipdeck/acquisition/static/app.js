@@ -128,6 +128,7 @@ const statusLabels = {success:'成功', partial:'部分成功', failed:'失败',
 const safeStatuses = new Set(['success', 'partial', 'failed', 'blocked', 'quarantined', 'running', 'pending', 'uploading', 'submitted', 'polling', 'downloading', 'assembling']);
 let dashboardLoading = false;
 let systemOnline = null;
+let isFiltered = false;
 
 function statusClass(value) {
   return safeStatuses.has(value) ? value : 'unknown';
@@ -144,13 +145,14 @@ function setSystemState(online) {
 
 async function loadDashboard() {
   if (dashboardLoading) return;
+  const isFiltering = isFiltered || Boolean($('#search-input')?.value.trim());
   dashboardLoading = true;
   try {
     const [summary, tasks, assets, evidence] = await Promise.all([
       request('/api/v1/dashboard/summary'),
       request('/api/v1/acquisitions?limit=30'),
       request('/api/v1/raw-assets?limit=30'),
-      request('/api/v1/evidence?limit=30'),
+      isFiltering ? Promise.resolve(null) : request('/api/v1/evidence?limit=30'),
     ]);
     $('#asset-count').textContent = String(summary.assets).padStart(2, '0');
     $('#task-count').textContent = summary.tasks;
@@ -180,12 +182,14 @@ async function loadDashboard() {
         return `<tr><td class="content-cell"><strong title="${escapeHtml(name)}">${escapeHtml(name)}</strong><small title="${escapeHtml(locator)}">${escapeHtml(locator)}</small>${errNote}</td><td>${escapeHtml(typeLabels[resourceType] || resourceType)}</td><td><span class="tag status-${statusClass(taskStatus)}">${escapeHtml(statusLabels[taskStatus] || taskStatus)}</span></td><td>${escapeHtml(version)}</td><td>${size ? formatBytes(size) : '远程'}</td><td>${new Date(task.created_at).toLocaleString('zh-CN', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}</td><td>${link}</td></tr>`;
       }).join('');
     }
-    const evidenceRows = $('#evidence-rows');
-    if (!evidence.length) {
-      evidenceRows.innerHTML = '<tr class="empty"><td colspan="5">还没有 Evidence。文本和网页会自动入库，PDF / Word 请在采集记录中确认解析。</td></tr>';
-    } else {
-      evidenceRows.innerHTML = evidence.map(renderEvidenceRow).join('');
-      wireTagEditors();
+    if (evidence && !isFiltering) {
+      const evidenceRows = $('#evidence-rows');
+      if (!evidence.length) {
+        evidenceRows.innerHTML = '<tr class="empty"><td colspan="5">还没有 Evidence。文本和网页会自动入库，PDF / Word 请在采集记录中确认解析。</td></tr>';
+      } else {
+        evidenceRows.innerHTML = evidence.map(renderEvidenceRow).join('');
+        wireTagEditors();
+      }
     }
     await loadTagCloud();
   } catch (error) {
@@ -252,6 +256,7 @@ async function runSearch() {
   const evidenceRows = $('#evidence-rows');
   evidenceRows.innerHTML = '<tr class="empty"><td colspan="5">搜索中…</td></tr>';
   searching = true;
+  isFiltered = true;
   $('#search-clear').hidden = false;
   try {
     const data = await request(`/api/v1/search?q=${encodeURIComponent(query)}&limit=50`);
@@ -273,6 +278,7 @@ async function runSearch() {
 async function runTagSearch(tag) {
   const evidenceRows = $('#evidence-rows');
   searching = true;
+  isFiltered = true;
   $('#search-clear').hidden = false;
   evidenceRows.innerHTML = '<tr class="empty"><td colspan="5">按标签筛选中…</td></tr>';
   try {
@@ -289,6 +295,8 @@ async function runTagSearch(tag) {
 }
 
 function clearSearch() {
+  searching = false;
+  isFiltered = false;
   $('#search-input').value = '';
   $('#search-clear').hidden = true;
   loadDashboard();

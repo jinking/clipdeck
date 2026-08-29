@@ -1,0 +1,1 @@
+"""Raw-first acquisition gateway."""

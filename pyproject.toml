@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sci-acquisition"
+version = "0.1.0"
+description = "Raw-first acquisition gateway for SCI Radar"
+requires-python = ">=3.12"
+dependencies = [
+  "aiofiles>=24.1,<25",
+  "beautifulsoup4>=4.13,<5",
+  "fastapi>=0.116,<1",
+  "httpx>=0.28,<1",
+  "python-multipart>=0.0.20,<1",
+  "python-dotenv>=1.0,<2",
+  "uvicorn[standard]>=0.35,<1",
+]
+
+[project.optional-dependencies]
+browser = ["crawl4ai==0.9.2"]
+test = [
+  "pytest>=8.4,<9",
+  "pytest-asyncio>=1.1,<2",
+  "pytest-cov>=6,<8",
+]
+
+[project.scripts]
+sci-acquisition = "sci_radar.acquisition.main:run"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q --strict-markers"
+markers = ["integration: integration tests"]
+
+[tool.coverage.run]
+source = ["sci_radar.acquisition", "sci_radar.ingestion"]

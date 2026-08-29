@@ -104,8 +104,13 @@ async def submit_file(
 
 
 @router.get("/acquisitions")
-async def list_tasks(request: Request, limit: int = 50):
-    return await service(request).repository.list_tasks(min(max(limit, 1), 200))
+async def list_tasks(request: Request, limit: int = 50, status: str | None = None):
+    return await service(request).repository.list_tasks(min(max(limit, 1), 200), status=status)
+
+
+@router.get("/failures")
+async def get_failures(request: Request):
+    return await service(request).repository.failure_analysis()
 
 
 @router.get("/acquisitions/{task_id}")

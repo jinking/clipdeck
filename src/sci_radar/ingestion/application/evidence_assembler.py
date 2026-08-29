@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from sci_radar.acquisition.domain import utcnow
 from sci_radar.ingestion.domain.models import DerivedArtifact, EvidenceDocument, IngestionStatus
-from sci_radar.ingestion.metadata import extract_identifiers
+from sci_radar.ingestion.metadata import extract_identifiers, extract_title
 from sci_radar.ingestion.storage.safe_zip import safe_extract_zip
 
 
@@ -51,10 +51,10 @@ class EvidenceAssembler:
             safe_extract_zip(result_zip, extracted_root)
             markdown_source = self._find_required(extracted_root, "full.md")
             markdown = markdown_source.read_text(encoding="utf-8")
-            if not markdown.strip():
-                raise ValueError("MinerU full.md is empty")
-            if len(markdown.strip()) < 50 and "CONTENT_TOO_SHORT" not in collected_warnings:
+            if len(markdown.strip()) < 200 and "CONTENT_TOO_SHORT" not in collected_warnings:
                 collected_warnings.append("CONTENT_TOO_SHORT")
+            if any(p in markdown for p in ["{{title}}", "{{brTitle}}", "NaN-NaN-NaN", "{{name}}"]) and "UNRENDERED_TEMPLATE" not in collected_warnings:
+                collected_warnings.append("UNRENDERED_TEMPLATE")
             (staging / "content.md").write_text(_rewrite_image_paths(markdown), encoding="utf-8")
 
             for image in _mineru_images(extracted_root):
@@ -82,12 +82,14 @@ class EvidenceAssembler:
                     artifacts.append(_artifact(target, f"MINERU_{name.upper().replace('.', '_')}", f"diagnostics/{name}"))
 
             identifiers = extract_identifiers(markdown)
+            title = extract_title(markdown, fallback=source_name)
             metadata = {
                 "schema_version": 2,
                 "evidence_id": evidence_id,
+                "title": title,
                 "source": {"asset_id": asset_id, "name": source_name},
                 "time": {"processed_at": utcnow().isoformat()},
-                "document": {"format": Path(source_name).suffix.lstrip(".") or None},
+                "document": {"title": title, "format": Path(source_name).suffix.lstrip(".") or None},
                 "identifiers": identifiers,
                 "raw": {"sha256": raw_sha256},
                 "conversion": {"provider": "mineru", "pipeline_fingerprint": pipeline_fingerprint},

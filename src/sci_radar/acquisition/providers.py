@@ -561,14 +561,25 @@ class Crawl4AIProvider(AcquisitionProvider):
 
             browser_config = None
             if browser_factory is not None:
-                browser_config = browser_factory(
-                    headless=True,
-                    java_script_enabled=True,
-                    accept_downloads=False,
-                    ignore_https_errors=False,
-                    verbose=False,
-                    max_pages_before_recycle=100,
-                )
+                browser_kwargs: dict[str, Any] = {
+                    "headless": True,
+                    "java_script_enabled": True,
+                    "accept_downloads": False,
+                    "ignore_https_errors": False,
+                    "verbose": False,
+                    "enable_stealth": True,
+                    "user_agent_mode": "random",
+                    "memory_saving_mode": True,
+                    "max_pages_before_recycle": 30,
+                }
+                try:
+                    sig = inspect.signature(browser_factory)
+                    has_var = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+                    if not has_var:
+                        browser_kwargs = {k: v for k, v in browser_kwargs.items() if k in sig.parameters}
+                except (ValueError, TypeError):
+                    pass
+                browser_config = browser_factory(**browser_kwargs)
 
             crawler_kwargs: dict[str, Any] = {"config": browser_config}
             if self.base_directory is not None:
@@ -751,13 +762,28 @@ class Crawl4AIProvider(AcquisitionProvider):
         try:
             if self._crawler is None or self._resolved_run_config_factory is None:
                 raise RuntimeError("Crawl4AI crawler is not ready")
-            config_kwargs = {
+            config_kwargs: dict[str, Any] = {
                 "cache_mode": self._resolved_cache_mode,
                 "page_timeout": 60_000,
                 "screenshot": capture_screenshot,
                 "capture_mhtml": self.capture_mhtml,
-                "scan_full_page": False,
+                "magic": True,
+                "remove_overlay_elements": True,
+                "remove_consent_popups": True,
+                "delay_before_return_html": 1.5,
+                "scan_full_page": True,
+                "scroll_delay": 0.2,
+                "max_scroll_steps": 4,
+                "excluded_tags": ["nav", "footer", "header", "aside", "form"],
+                "excluded_selector": ".footer, .header, .nav, .sidebar, .share, .copyright, .login, #fixMenuBar, #footer, #header",
             }
+            try:
+                sig = inspect.signature(self._resolved_run_config_factory)
+                has_var = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+                if not has_var:
+                    config_kwargs = {k: v for k, v in config_kwargs.items() if k in sig.parameters}
+            except (ValueError, TypeError):
+                pass
             config = self._resolved_run_config_factory(**config_kwargs)
             crawl_result: Any = await self._crawler.arun(url=url, config=config)
             final_url = getattr(crawl_result, "redirected_url", None) or getattr(crawl_result, "url", None) or url
@@ -802,6 +828,18 @@ class Crawl4AIProvider(AcquisitionProvider):
                     is_primary=True,
                 )
             ]
+            raw_markdown = None
+            if hasattr(crawl_result, "markdown") and crawl_result.markdown:
+                raw_markdown = getattr(crawl_result.markdown, "fit_markdown", None) or getattr(crawl_result.markdown, "raw_markdown", None)
+            if raw_markdown and len(str(raw_markdown).strip()) > 30:
+                payloads.append(
+                    ProviderPayload(
+                        data=str(raw_markdown).strip().encode("utf-8"),
+                        role=BlobRole.FIT_MARKDOWN,
+                        mime_type="text/markdown; charset=utf-8",
+                        original_url=final_url,
+                    )
+                )
             screenshot_data = getattr(crawl_result, "screenshot", None)
             if capture_screenshot and screenshot_data:
                 payloads.append(

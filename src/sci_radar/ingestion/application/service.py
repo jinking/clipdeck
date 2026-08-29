@@ -24,7 +24,7 @@ from sci_radar.ingestion.domain.models import (
     IngestionOptions,
     IngestionStatus,
 )
-from sci_radar.ingestion.metadata import extract_identifiers
+from sci_radar.ingestion.metadata import extract_article_metadata, extract_identifiers, extract_title
 from sci_radar.ingestion.pipeline_fingerprint import pipeline_fingerprint as build_fingerprint
 from sci_radar.ingestion.policy import ExternalProcessingDenied, ensure_external_processing_allowed
 from sci_radar.ingestion.providers.mineru.client import MinerUClient
@@ -52,6 +52,7 @@ class IngestionService:
         evidence_root: str | Path,
         mineru_client: MinerUClient | None = None,
         llm_extractor: Any | None = None,
+        image_ocr_extractor: Any | None = None,
         poll_initial_seconds: float = 2,
         poll_max_seconds: float = 30,
         task_timeout_seconds: float = 1800,
@@ -62,6 +63,7 @@ class IngestionService:
         self.evidence_root = Path(evidence_root)
         self.mineru_client = mineru_client
         self.llm_extractor = llm_extractor
+        self.image_ocr_extractor = image_ocr_extractor
         self.poll_initial_seconds = poll_initial_seconds
         self.poll_max_seconds = poll_max_seconds
         self.task_timeout_seconds = task_timeout_seconds
@@ -445,7 +447,35 @@ class IngestionService:
             if root is None:
                 root = soup.body or soup
 
+        art_meta = extract_article_metadata(
+            html=text,
+            url=asset.requested_url or asset.final_url,
+            fallback_title=asset.provider_meta.get("display_name") or asset.provider_meta.get("title"),
+        )
+        title = art_meta.title
         md = _html_to_markdown(root).strip()
+        if title and not md.startswith("# "):
+            md = f"# {title}\n\n{md}"
+
+        # Multi-modal OCR for posters and info-rich images
+        ocr_sections: list[str] = []
+        if self.image_ocr_extractor and asset.child_assets:
+            candidate_images = [img for img in asset.child_assets if img.size_bytes >= 5120][:6]
+            for idx, img_ref in enumerate(candidate_images, 1):
+                try:
+                    img_bytes = await self.blob_store.get(img_ref.blob_id)
+                    if img_bytes:
+                        has_text, ocr_text = await self.image_ocr_extractor.extract_text(img_bytes, img_ref.mime_type)
+                        if has_text and ocr_text:
+                            ext = extension_for_blob(img_ref)
+                            target_name = f"assets/img-{idx:03d}{ext}"
+                            ocr_sections.append(f"### 📷 [附图/海报文字识别: {target_name}]\n\n{ocr_text}")
+                except Exception as exc:
+                    logger.warning("Failed to extract OCR from image %s: %s", img_ref.blob_id, exc)
+
+        if ocr_sections:
+            md = md + "\n\n---\n## 📋 附图与海报文字提取\n\n" + "\n\n".join(ocr_sections)
+
         if len(md) < 10:
             raise ValueError("提取后的 Markdown 正文过短，无法形成有效证据")
         return _LocalConversion(
@@ -470,9 +500,17 @@ class IngestionService:
             markdown.encode("utf-8"), mime_type="text/markdown; charset=utf-8", role=BlobRole.EVIDENCE_MARKDOWN,
         )
         identifiers = extract_identifiers(markdown)
+        art_meta = extract_article_metadata(
+            markdown=markdown,
+            url=asset.requested_url or asset.final_url,
+            fallback_title=asset.provider_meta.get("display_name") or asset.provider_meta.get("title"),
+        )
+        title = art_meta.title or asset.provider_meta.get("display_name") or asset.provider_meta.get("title")
         warnings: list[str] = []
-        if len(markdown.strip()) < 50:
+        if len(markdown.strip()) < 200:
             warnings.append("CONTENT_TOO_SHORT")
+        if any(p in markdown for p in ["{{title}}", "{{brTitle}}", "NaN-NaN-NaN", "{{name}}"]):
+            warnings.append("UNRENDERED_TEMPLATE")
         conversion = conversion or _LocalConversion(
             markdown=markdown, provider="local", converter=f"{asset.resource_type.value}_local",
             model=None, requested_provider=None, fallback_status="not_requested",
@@ -480,17 +518,23 @@ class IngestionService:
         metadata = {
             "schema_version": 2,
             "evidence_id": evidence_id,
+            "title": title,
             "source": {
                 "asset_id": str(asset.asset_id),
                 "resource_type": asset.resource_type.value,
                 "requested_url": asset.requested_url,
                 "final_url": asset.final_url,
+                "display_name": asset.provider_meta.get("display_name") or title,
+                "platform": art_meta.platform,
+                "author": art_meta.author,
             },
             "time": {
+                "published_at": art_meta.published_at,
                 "fetched_at": asset.fetched_at.isoformat(),
                 "processed_at": utcnow().isoformat(),
             },
             "document": {
+                "title": title,
                 "format": asset.resource_type.value,
             },
             "identifiers": identifiers,

@@ -95,11 +95,66 @@ class SQLiteRepository:
         row = await self._run(lambda db: db.execute("SELECT payload_json FROM acquisition_tasks WHERE id=?", (str(task_id),)).fetchone())
         return AcquisitionTask.model_validate_json(row["payload_json"]) if row else None
 
-    async def list_tasks(self, limit: int = 50) -> list[AcquisitionTask]:
-        rows = await self._run(lambda db: db.execute(
-            "SELECT payload_json FROM acquisition_tasks ORDER BY created_at DESC LIMIT ?", (limit,)
-        ).fetchall())
+    async def list_tasks(self, limit: int = 50, status: str | None = None) -> list[AcquisitionTask]:
+        if status:
+            rows = await self._run(lambda db: db.execute(
+                "SELECT payload_json FROM acquisition_tasks WHERE status=? ORDER BY created_at DESC LIMIT ?", (status, limit,)
+            ).fetchall())
+        else:
+            rows = await self._run(lambda db: db.execute(
+                "SELECT payload_json FROM acquisition_tasks ORDER BY created_at DESC LIMIT ?", (limit,)
+            ).fetchall())
         return [AcquisitionTask.model_validate_json(row["payload_json"]) for row in rows]
+
+    async def failure_analysis(self) -> dict[str, Any]:
+        def query(db: sqlite3.Connection) -> dict[str, Any]:
+            rows = db.execute(
+                """SELECT id, status, resource_type, source_kind, payload_json,
+                          json_extract(payload_json, '$.requested_url') as url,
+                          json_extract(payload_json, '$.display_name') as name,
+                          json_extract(payload_json, '$.last_error_code') as error_code,
+                          json_extract(payload_json, '$.last_error_message') as error_message,
+                          json_extract(payload_json, '$.attempt_count') as attempt_count,
+                          created_at,
+                          json_extract(payload_json, '$.finished_at') as finished_at
+                   FROM acquisition_tasks
+                   WHERE status NOT IN ('success')
+                   ORDER BY created_at DESC"""
+            ).fetchall()
+
+            by_error_code: dict[str, int] = {}
+            by_domain: dict[str, int] = {}
+            items: list[dict[str, Any]] = []
+
+            for r in rows:
+                err_code = r["error_code"] or "UNKNOWN"
+                by_error_code[err_code] = by_error_code.get(err_code, 0) + 1
+                url = r["url"] or ""
+                domain = "unknown"
+                if "://" in url:
+                    domain = url.split("://", 1)[1].split("/", 1)[0]
+                by_domain[domain] = by_domain.get(domain, 0) + 1
+
+                items.append({
+                    "task_id": r["id"],
+                    "status": r["status"],
+                    "display_name": r["name"],
+                    "requested_url": r["url"],
+                    "domain": domain,
+                    "error_code": err_code,
+                    "error_message": r["error_message"],
+                    "attempt_count": r["attempt_count"],
+                    "created_at": r["created_at"],
+                    "finished_at": r["finished_at"],
+                })
+
+            return {
+                "total_failures": len(rows),
+                "by_error_code": by_error_code,
+                "by_domain": dict(sorted(by_domain.items(), key=lambda x: x[1], reverse=True)[:20]),
+                "failures": items,
+            }
+        return await self._run(query)
 
     async def list_recoverable_tasks(self) -> list[AcquisitionTask]:
         rows = await self._run(lambda db: db.execute(

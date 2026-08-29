@@ -81,6 +81,7 @@ class BlobRole(StrEnum):
     EVIDENCE_YAML = "evidence_yaml"
     MINERU_RESULT_ARCHIVE = "mineru_result_archive"
     DERIVED_IMAGE = "derived_image"
+    FIT_MARKDOWN = "fit_markdown"
 
 
 class ErrorCode(StrEnum):

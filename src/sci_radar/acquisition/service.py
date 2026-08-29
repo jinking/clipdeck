@@ -68,6 +68,14 @@ class AcquisitionService:
             )
 
         provider = self.classifier.provider_for(resource_type, request.source_kind)
+        resource_key = self.classifier.resource_key(resource_type, source_key)
+        if not request.force_refetch:
+            existing_asset = await self.repository.latest_asset(resource_key)
+            if existing_asset is not None and existing_asset.acquisition_status in {TaskStatus.SUCCESS, TaskStatus.PARTIAL}:
+                existing_task = await self.repository.get_task(existing_asset.task_id)
+                if existing_task is not None and existing_task.status in {TaskStatus.SUCCESS, TaskStatus.PARTIAL}:
+                    return existing_task
+
         task = AcquisitionTask(
             source_kind=request.source_kind,
             requested_url=request.url,

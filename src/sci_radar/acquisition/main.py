@@ -78,6 +78,15 @@ def create_app(data_root: str | Path | None = None, *, mineru_token: str | None 
             model=os.getenv("LLM_MODEL", "MiniMax-Text-01"),
         )
 
+    image_ocr_extractor = None
+    if llm_api_key:
+        from sci_radar.ingestion.llm import ImageOCRExtractor
+        image_ocr_extractor = ImageOCRExtractor(
+            api_key=llm_api_key,
+            base_url=_https_api_base_url(os.getenv("LLM_BASE_URL", "https://api.minimaxi.com/v1")),
+            model=os.getenv("LLM_MODEL", "MiniMax-Text-01"),
+        )
+
     ingestion_service = IngestionService(
         raw_repository=repository,
         ingestion_repository=ingestion_repository,
@@ -85,6 +94,7 @@ def create_app(data_root: str | Path | None = None, *, mineru_token: str | None 
         evidence_root=root / "evidence",
         mineru_client=mineru_client,
         llm_extractor=llm_extractor,
+        image_ocr_extractor=image_ocr_extractor,
         poll_initial_seconds=float(os.getenv("SCI_MINERU_POLL_INITIAL_SECONDS", "2")),
         poll_max_seconds=float(os.getenv("SCI_MINERU_POLL_MAX_SECONDS", "30")),
         task_timeout_seconds=float(os.getenv("SCI_MINERU_TASK_TIMEOUT_SECONDS", "1800")),

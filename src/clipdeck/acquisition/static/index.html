@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Clipdeck 通用网页保存与归档工作台">
+  <title>Clipdeck · 网页归档站</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="grain" aria-hidden="true"></div>
+  <header class="masthead">
+    <a class="brand" href="/" aria-label="Clipdeck 首页">
+      <span class="brand-mark">CD</span>
+      <span><b>CLIPDECK</b><small>RAW MATERIAL STATION</small></span>
+    </a>
+    <div class="system-state" id="system-state" role="status" aria-live="polite" aria-atomic="true"><i aria-hidden="true"></i><span>正在连接采集节点</span><code>LOCAL / V0.2</code></div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">CLIPDECK · 通用网页归档</p>
+        <h1>先原样保存，<br><em>再统一入库。</em></h1>
+        <p class="lede">任何网页、公众号文章、文件和粘贴文字先成为可追溯的 RawAsset，再编译为 Markdown Evidence。PDF 与 Word 经用户确认后交给 MinerU。</p>
+      </div>
+      <div class="hero-meter" aria-label="系统摘要">
+        <span>RAW FIRST</span>
+        <strong id="asset-count">—</strong>
+        <small>ASSETS ARCHIVED</small>
+        <div class="meter-rule"><i></i></div>
+      </div>
+    </section>
+
+    <section class="workbench" aria-labelledby="capture-title">
+      <div class="section-index">01</div>
+      <div class="workbench-main">
+        <div class="section-heading">
+          <div><p class="eyebrow">NEW ACQUISITION</p><h2 id="capture-title">投递原始内容</h2></div>
+          <p>选择入口。任务提交后即进入内容寻址存储，并保留每次 FetchAttempt。</p>
+        </div>
+
+        <div class="source-tabs" role="tablist" aria-label="采集来源">
+          <button class="tab active" id="tab-url" role="tab" aria-selected="true" aria-controls="panel-url" tabindex="0" data-tab="url"><span>↗</span>网址下载</button>
+          <button class="tab" id="tab-file" role="tab" aria-selected="false" aria-controls="panel-file" tabindex="-1" data-tab="file"><span>□</span>文件入库</button>
+          <button class="tab" id="tab-text" role="tab" aria-selected="false" aria-controls="panel-text" tabindex="-1" data-tab="text"><span>¶</span>粘贴文本</button>
+        </div>
+
+        <div class="capture-panel active" id="panel-url" role="tabpanel" aria-labelledby="tab-url">
+          <form id="url-form">
+            <label for="url">公开资源 URL</label>
+            <div class="url-row"><input id="url" name="url" type="url" placeholder="https://mp.weixin.qq.com/s/..." required><button type="submit">开始采集 <span>→</span></button></div>
+            <div class="form-options">
+              <label class="check"><input name="capture_screenshot" type="checkbox"><span></span>同时保存截图</label>
+              <p>自动识别普通网页、微信文章、PDF、视频与播客直链</p>
+            </div>
+          </form>
+        </div>
+
+        <div class="capture-panel" id="panel-file" role="tabpanel" aria-labelledby="tab-file" hidden>
+          <form id="file-form">
+            <label class="dropzone" for="file">
+              <input id="file" name="file" type="file" accept=".pdf,.doc,.docx,.txt,.md,audio/*,video/*" required>
+              <span class="drop-symbol">＋</span><strong>把文件放到这里</strong><small>PDF / Word / Text / Audio / Video · 原文件不会被改写</small>
+            </label>
+            <div class="file-action"><span id="file-name">尚未选择文件</span><button type="submit">原样入库 <span>→</span></button></div>
+          </form>
+        </div>
+
+        <div class="capture-panel" id="panel-text" role="tabpanel" aria-labelledby="tab-text" hidden>
+          <form id="text-form">
+            <label for="display_name">这段内容叫什么</label>
+            <input id="display_name" name="display_name" type="text" placeholder="例如：8 月研究笔记">
+            <label for="text">原始文字</label>
+            <textarea id="text" name="text" rows="8" placeholder="把原始内容完整粘贴到这里……" required></textarea>
+            <div class="text-action"><small id="char-count">0 字符</small><button type="submit">保存原文 <span>→</span></button></div>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <section class="pipeline" aria-labelledby="pipeline-title">
+      <div class="section-index">02</div>
+      <div class="pipeline-main">
+        <div class="section-heading">
+          <div><p class="eyebrow">BOUNDARY MAP</p><h2 id="pipeline-title">系统只走到这里</h2></div>
+        </div>
+        <div class="flow">
+          <article class="flow-card current"><span>INPUT</span><strong>来源投递</strong><small>URL · FILE · TEXT</small></article>
+          <i>→</i>
+          <article class="flow-card current"><span>LAYER 2</span><strong>原始采集</strong><small>FETCH · HASH · VERSION</small></article>
+          <i>→</i>
+          <article class="flow-card current"><span>OUTPUT</span><strong>RawAsset</strong><small>BLOB · MANIFEST · EVENT</small></article>
+          <i class="future-arrow">⇢</i>
+          <article class="flow-card current"><span>LAYER 3</span><strong>Evidence</strong><small>MARKDOWN · META · ASSETS</small></article>
+        </div>
+        <div class="reserved-slots">
+          <span>当前能力</span><b>HTML 解析</b><b>MinerU 文档提取</b><b>文本标准化</b><b>音视频转写接口预留</b>
+        </div>
+      </div>
+    </section>
+
+    <section class="ledger" aria-labelledby="ledger-title">
+      <div class="section-index">03</div>
+      <div class="ledger-main">
+        <div class="section-heading">
+          <div><p class="eyebrow">ACQUISITION LEDGER</p><h2 id="ledger-title">最近任务</h2></div>
+          <button class="quiet-button" id="refresh" type="button">刷新记录 ↻</button>
+        </div>
+        <div class="stats" id="stats">
+          <div><small>全部任务</small><strong id="task-count">—</strong></div>
+          <div><small>成功资产</small><strong id="success-count">—</strong></div>
+          <div><small>原始存量</small><strong id="stored-size">—</strong></div>
+          <div><small>失败 / 阻断</small><strong id="failure-count">—</strong></div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>内容</th><th>类型</th><th>状态</th><th>版本</th><th>原始大小</th><th>时间</th><th></th></tr></thead>
+            <tbody id="task-rows"><tr class="empty"><td colspan="7">正在读取采集账本…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="evidence" aria-labelledby="evidence-title">
+      <div class="section-index">04</div>
+      <div class="evidence-main">
+        <div class="section-heading">
+          <div><p class="eyebrow">EVIDENCE LIBRARY</p><h2 id="evidence-title">统一入库</h2></div>
+          <p>Markdown、Metadata 与图片保存在文件系统的只读双视图中；SQLite 仅保存引用、状态和追溯信息。</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Evidence</th><th>状态</th><th>原始资产</th><th>Pipeline</th><th>时间</th><th>操作</th></tr></thead>
+            <tbody id="evidence-rows"><tr class="empty"><td colspan="6">正在读取 Evidence…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <footer><span>CLIPDECK / RAW ARCHIVE GATEWAY</span><span>RAW FIRST · APPEND ONLY · TRACEABLE</span></footer>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

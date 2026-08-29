@@ -1,7 +1,7 @@
 """RED contracts for local Layer 3 ingestion.
 
 These tests deliberately describe the smallest public surface that the future
-``sci_radar.ingestion`` package needs to expose.  They use already persisted
+``clipdeck.ingestion`` package needs to expose.  They use already persisted
 Layer 2 ``RawAsset`` records so the tests exercise the hand-off boundary rather
 than re-testing acquisition providers.
 """
@@ -15,7 +15,7 @@ from uuid import uuid4
 
 import pytest
 
-from sci_radar.acquisition.domain import (
+from clipdeck.acquisition.domain import (
     AcquisitionTask,
     AttemptStatus,
     BlobRole,
@@ -27,12 +27,12 @@ from sci_radar.acquisition.domain import (
     TaskStatus,
     ValidationStatus,
 )
-from sci_radar.acquisition.repository import SQLiteRepository
-from sci_radar.acquisition.storage import LocalBlobStore
-from sci_radar.ingestion.application import IngestionService
-from sci_radar.ingestion.domain.models import IngestionOptions
-from sci_radar.ingestion.repository import SQLiteIngestionRepository
-from sci_radar.ingestion.queue import SingleIngestionWorker
+from clipdeck.acquisition.repository import SQLiteRepository
+from clipdeck.acquisition.storage import LocalBlobStore
+from clipdeck.ingestion.application import IngestionService
+from clipdeck.ingestion.domain.models import IngestionOptions
+from clipdeck.ingestion.repository import SQLiteIngestionRepository
+from clipdeck.ingestion.queue import SingleIngestionWorker
 
 
 @dataclass
@@ -363,7 +363,7 @@ async def test_authorized_llm_failure_records_local_fallback_metadata(local_inge
 
 @pytest.mark.asyncio
 async def test_worker_close_completes_current_and_queued_submit_futures(local_ingestion) -> None:
-    from sci_radar.ingestion.queue.worker import WorkerClosedError
+    from clipdeck.ingestion.queue.worker import WorkerClosedError
 
     entered = __import__("asyncio").Event()
     never = __import__("asyncio").Event()
@@ -458,7 +458,7 @@ async def test_local_evidence_retry_atomically_replaces_failed_partial_view(loca
         mime_type="text/plain",
         role=BlobRole.PASTED_TEXT,
     )
-    import sci_radar.ingestion.application.service as service_module
+    import clipdeck.ingestion.application.service as service_module
 
     original = service_module._hardlink
     calls = 0

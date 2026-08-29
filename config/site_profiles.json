@@ -1,0 +1,28 @@
+{
+  "_comment": "Clipdeck 站点/行为配置。此文件可选：缺失时使用代码内默认值。platform_domains: 域名->平台显示名；identifier_extractors: 学术标识符提取开关（DOI/PMID/PMCID/NCT/ChiCTR/ORCID）；llm_extract_prompt_path / image_ocr_prompt_path: 自定义 prompt 模板文件路径，模板中用 {content} 占位。",
+  "platform_domains": {
+    "mp.weixin.qq.com": "微信公众号",
+    "news.sciencenet.cn": "科学网",
+    "media.qimingpian.cn": "企名片",
+    "finance.eastmoney.com": "东方财富网",
+    "www.yicai.com": "第一财经",
+    "www.news.cn": "新华网",
+    "www.xinhuanet.com": "新华网",
+    "www.thepaper.cn": "澎湃新闻",
+    "www.tsinghua.edu.cn": "清华大学官方网",
+    "jrj.sh.gov.cn": "上海市委金融办",
+    "www.eurekalert.org": "EurekAlert! 科学新闻",
+    "pmc.ncbi.nlm.nih.gov": "PubMed Central (NIH)",
+    "www.jfdaily.com": "上观新闻"
+  },
+  "identifier_extractors": {
+    "DOI": true,
+    "PMID": true,
+    "PMCID": true,
+    "NCT": true,
+    "ChiCTR": true,
+    "ORCID": true
+  },
+  "llm_extract_prompt_path": null,
+  "image_ocr_prompt_path": null
+}

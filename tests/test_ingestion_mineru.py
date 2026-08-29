@@ -76,7 +76,7 @@ def _make_mineru_client(client_type: Any, settings_type: Any, transport: httpx.M
 
 
 def test_remote_state_mapping_is_explicit_and_unknown_states_are_not_success() -> None:
-    from sci_radar.ingestion.providers.mineru.schemas import RemoteState, map_remote_state
+    from clipdeck.ingestion.providers.mineru.schemas import RemoteState, map_remote_state
 
     assert map_remote_state("waiting-file") is RemoteState.UPLOADING
     assert map_remote_state("pending") is RemoteState.SUBMITTED
@@ -91,7 +91,7 @@ def test_remote_state_mapping_is_explicit_and_unknown_states_are_not_success() -
 
 @pytest.mark.asyncio
 async def test_mineru_precise_client_posts_batch_uploads_without_auth_and_polls_result() -> None:
-    from sci_radar.ingestion.providers.mineru.client import MinerUClient, MinerUSettings
+    from clipdeck.ingestion.providers.mineru.client import MinerUClient, MinerUSettings
 
     token = "test-mineru-token-do-not-log"
     uploaded: list[httpx.Request] = []
@@ -156,7 +156,7 @@ async def test_mineru_precise_client_posts_batch_uploads_without_auth_and_polls_
 
 @pytest.mark.asyncio
 async def test_mineru_client_does_not_log_token_or_follow_untrusted_result_host(caplog: pytest.LogCaptureFixture) -> None:
-    from sci_radar.ingestion.providers.mineru.client import MinerUClient, MinerUSettings
+    from clipdeck.ingestion.providers.mineru.client import MinerUClient, MinerUSettings
 
     token = "ultra-secret-mineru-token"
 
@@ -180,7 +180,7 @@ async def test_mineru_client_does_not_log_token_or_follow_untrusted_result_host(
 
 @pytest.mark.asyncio
 async def test_mineru_upload_http_error_never_exposes_signed_query() -> None:
-    from sci_radar.ingestion.providers.mineru.client import MinerUClient, MinerUHTTPError, MinerUSettings
+    from clipdeck.ingestion.providers.mineru.client import MinerUClient, MinerUHTTPError, MinerUSettings
 
     signed_url = "https://upload.mineru.test/file?X-Amz-Signature=must-remain-secret"
     transport = httpx.MockTransport(lambda request: httpx.Response(403, request=request))
@@ -196,7 +196,7 @@ async def test_mineru_upload_http_error_never_exposes_signed_query() -> None:
 
 
 def test_safe_zip_extracts_result_and_rejects_traversal_absolute_and_symlink_entries(tmp_path: Path) -> None:
-    from sci_radar.ingestion.storage.safe_zip import UnsafeArchiveError, safe_extract_zip
+    from clipdeck.ingestion.storage.safe_zip import UnsafeArchiveError, safe_extract_zip
 
     destination = tmp_path / "safe"
     safe_extract_zip(
@@ -218,7 +218,7 @@ def test_safe_zip_extracts_result_and_rejects_traversal_absolute_and_symlink_ent
 
 
 def test_safe_zip_enforces_member_and_uncompressed_size_limits(tmp_path: Path) -> None:
-    from sci_radar.ingestion.storage.safe_zip import UnsafeArchiveError, safe_extract_zip
+    from clipdeck.ingestion.storage.safe_zip import UnsafeArchiveError, safe_extract_zip
 
     many_members = _zip_bytes({"a.txt": b"a", "b.txt": b"b"})
     with pytest.raises(UnsafeArchiveError, match="member|entry|limit"):
@@ -230,7 +230,7 @@ def test_safe_zip_enforces_member_and_uncompressed_size_limits(tmp_path: Path) -
 
 
 def test_external_processing_policy_blocks_disabled_or_sensitive_sources() -> None:
-    from sci_radar.ingestion.policy import ExternalProcessingDenied, ensure_external_processing_allowed
+    from clipdeck.ingestion.policy import ExternalProcessingDenied, ensure_external_processing_allowed
 
     with pytest.raises(ExternalProcessingDenied):
         ensure_external_processing_allowed(external_processing_allowed=False, sensitive_source=False)
@@ -242,7 +242,7 @@ def test_external_processing_policy_blocks_disabled_or_sensitive_sources() -> No
 
 @pytest.mark.asyncio
 async def test_sqlite_external_job_survives_restart_and_only_safe_fields_are_persisted(tmp_path: Path) -> None:
-    from sci_radar.ingestion.repository import SQLiteIngestionRepository
+    from clipdeck.ingestion.repository import SQLiteIngestionRepository
 
     database = tmp_path / "ingestion.db"
     token = "token-must-not-be-stored"
@@ -284,7 +284,7 @@ async def test_sqlite_external_job_survives_restart_and_only_safe_fields_are_per
 
 @pytest.mark.asyncio
 async def test_sqlite_resume_excludes_terminal_jobs_and_keeps_remote_batch_id(tmp_path: Path) -> None:
-    from sci_radar.ingestion.repository import SQLiteIngestionRepository
+    from clipdeck.ingestion.repository import SQLiteIngestionRepository
 
     repository = SQLiteIngestionRepository(tmp_path / "jobs.db")
     await repository.initialize()
@@ -314,7 +314,7 @@ async def test_sqlite_resume_excludes_terminal_jobs_and_keeps_remote_batch_id(tm
 
 @pytest.mark.asyncio
 async def test_evidence_assembler_uses_full_markdown_and_tracks_archive_json_and_images(tmp_path: Path) -> None:
-    from sci_radar.ingestion.application.evidence_assembler import EvidenceAssembler
+    from clipdeck.ingestion.application.evidence_assembler import EvidenceAssembler
 
     archive = _zip_bytes(
         {
@@ -350,7 +350,7 @@ async def test_evidence_assembler_uses_full_markdown_and_tracks_archive_json_and
 
 @pytest.mark.asyncio
 async def test_evidence_assembler_extracts_academic_identifiers_into_yaml(tmp_path: Path) -> None:
-    from sci_radar.ingestion.application.evidence_assembler import EvidenceAssembler
+    from clipdeck.ingestion.application.evidence_assembler import EvidenceAssembler
 
     archive = _zip_bytes(
         {
@@ -379,7 +379,7 @@ async def test_evidence_assembler_extracts_academic_identifiers_into_yaml(tmp_pa
 
 @pytest.mark.asyncio
 async def test_evidence_assembler_publish_failure_preserves_previous_package(tmp_path: Path, monkeypatch) -> None:
-    from sci_radar.ingestion.application import evidence_assembler as module
+    from clipdeck.ingestion.application import evidence_assembler as module
 
     package = tmp_path / "evidence-atomic"
     package.mkdir()
@@ -411,8 +411,8 @@ async def test_evidence_assembler_publish_failure_preserves_previous_package(tmp
 @pytest.mark.asyncio
 async def test_canonicalization_failure_preserves_existing_package(tmp_path: Path) -> None:
     from types import SimpleNamespace
-    from sci_radar.ingestion.application import IngestionService
-    from sci_radar.ingestion.domain.models import EvidenceDocument
+    from clipdeck.ingestion.application import IngestionService
+    from clipdeck.ingestion.domain.models import EvidenceDocument
 
     package = tmp_path / "published"
     package.mkdir()
@@ -451,9 +451,9 @@ async def test_canonicalization_failure_preserves_existing_package(tmp_path: Pat
 
 @pytest.mark.asyncio
 async def test_canonicalized_mineru_artifacts_reference_source_archive_blob(tmp_path: Path) -> None:
-    from sci_radar.acquisition.storage import LocalBlobStore
-    from sci_radar.ingestion.application import IngestionService
-    from sci_radar.ingestion.domain.models import EvidenceDocument
+    from clipdeck.acquisition.storage import LocalBlobStore
+    from clipdeck.ingestion.application import IngestionService
+    from clipdeck.ingestion.domain.models import EvidenceDocument
 
     package = tmp_path / "package"
     (package / "assets").mkdir(parents=True)

@@ -1,4 +1,4 @@
-from sci_radar.acquisition.domain import ResourceClassifier, ResourceType, SourceKind
+from clipdeck.acquisition.domain import ResourceClassifier, ResourceType, SourceKind
 
 
 def test_classifier_routes_wechat_and_regular_web() -> None:

@@ -1,7 +1,7 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from sci_radar.acquisition.main import create_app
+from clipdeck.acquisition.main import create_app
 
 
 @pytest.mark.asyncio

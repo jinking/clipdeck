@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from sci_radar.acquisition.main import create_app
+from clipdeck.acquisition.main import create_app
 
 
 @pytest.mark.asyncio

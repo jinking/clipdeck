@@ -1,8 +1,8 @@
 import httpx
 import pytest
 
-from sci_radar.acquisition.domain import ErrorCode, ProviderFetchResult, ResourceType, ValidationStatus
-from sci_radar.acquisition.providers import (
+from clipdeck.acquisition.domain import ErrorCode, ProviderFetchResult, ResourceType, ValidationStatus
+from clipdeck.acquisition.providers import (
     Crawl4AIProvider,
     DirectDownloadProvider,
     ProviderResolver,
@@ -98,7 +98,7 @@ async def test_direct_download_rejects_content_length_before_reading_body() -> N
 
 @pytest.mark.asyncio
 async def test_direct_download_pins_connection_to_the_validated_address(monkeypatch) -> None:
-    import sci_radar.acquisition.providers as provider_module
+    import clipdeck.acquisition.providers as provider_module
 
     async def resolve(url: str):
         assert url == "https://public.example/file"
@@ -127,7 +127,7 @@ async def test_direct_download_pins_connection_to_the_validated_address(monkeypa
 
 @pytest.mark.asyncio
 async def test_pinned_redirects_do_not_share_cookies_across_logical_origins(monkeypatch) -> None:
-    import sci_radar.acquisition.providers as provider_module
+    import clipdeck.acquisition.providers as provider_module
 
     async def resolve(url: str):
         return ("8.8.8.8",)
@@ -153,7 +153,7 @@ async def test_pinned_redirects_do_not_share_cookies_across_logical_origins(monk
 
 @pytest.mark.asyncio
 async def test_pinned_redirects_preserve_same_origin_cookie(monkeypatch) -> None:
-    import sci_radar.acquisition.providers as provider_module
+    import clipdeck.acquisition.providers as provider_module
 
     async def resolve(url: str):
         return ("8.8.8.8",)
@@ -176,7 +176,7 @@ async def test_pinned_redirects_preserve_same_origin_cookie(monkeypatch) -> None
 
 @pytest.mark.asyncio
 async def test_pinned_redirects_accept_domain_cookie_for_logical_host(monkeypatch) -> None:
-    import sci_radar.acquisition.providers as provider_module
+    import clipdeck.acquisition.providers as provider_module
 
     async def resolve(url: str):
         return ("8.8.8.8",)
@@ -201,7 +201,7 @@ async def test_pinned_redirects_accept_domain_cookie_for_logical_host(monkeypatc
 
 @pytest.mark.asyncio
 async def test_logical_cookie_respects_path_scope_and_deletion(monkeypatch) -> None:
-    import sci_radar.acquisition.providers as provider_module
+    import clipdeck.acquisition.providers as provider_module
 
     async def resolve(url: str):
         return ("8.8.8.8",)
@@ -282,7 +282,7 @@ async def test_wechat_rejects_oversized_main_document_from_content_length() -> N
 
 @pytest.mark.asyncio
 async def test_wechat_child_redirect_is_validated_pinned_and_downloaded(monkeypatch) -> None:
-    import sci_radar.acquisition.providers as provider_module
+    import clipdeck.acquisition.providers as provider_module
 
     html = b'<div id="js_article"><div id="js_content"><img src="https://img.example/start"></div></div>'
     validated: list[str] = []

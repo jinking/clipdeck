@@ -7,14 +7,14 @@ from typing import Any
 
 import pytest
 
-from sci_radar.acquisition.domain import (
+from clipdeck.acquisition.domain import (
     BlobRole,
     ErrorCode,
     ProviderFetchResult,
     ValidationStatus,
 )
-from sci_radar.acquisition.providers import Crawl4AIProvider
-from sci_radar.acquisition.security import UnsafeTargetError
+from clipdeck.acquisition.providers import Crawl4AIProvider
+from clipdeck.acquisition.security import UnsafeTargetError
 
 
 @dataclass

@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from sci_radar.acquisition.domain import AcquisitionInput, SourceKind
-from sci_radar.acquisition.main import create_app
-from sci_radar.ingestion.providers.mineru.schemas import BatchResult, FileBatch
+from clipdeck.acquisition.domain import AcquisitionInput, SourceKind
+from clipdeck.acquisition.main import create_app
+from clipdeck.ingestion.providers.mineru.schemas import BatchResult, FileBatch
 
 
 @pytest.mark.asyncio

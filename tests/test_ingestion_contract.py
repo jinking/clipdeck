@@ -1,9 +1,9 @@
 import pytest
 
-from sci_radar.ingestion.domain.models import IngestionOptions
-from sci_radar.ingestion.pipeline_fingerprint import pipeline_fingerprint
-from sci_radar.ingestion.policy import ExternalProcessingDenied, ensure_external_processing_allowed
-from sci_radar.ingestion.providers.mineru.schemas import RemoteState, map_remote_state
+from clipdeck.ingestion.domain.models import IngestionOptions
+from clipdeck.ingestion.pipeline_fingerprint import pipeline_fingerprint
+from clipdeck.ingestion.policy import ExternalProcessingDenied, ensure_external_processing_allowed
+from clipdeck.ingestion.providers.mineru.schemas import RemoteState, map_remote_state
 
 
 def test_pipeline_fingerprint_is_stable_and_changes_with_provider_options() -> None:

@@ -3,13 +3,14 @@ requires = ["setuptools>=75"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "sci-acquisition"
-version = "0.1.0"
-description = "Raw-first acquisition gateway for SCI Radar"
+name = "clipdeck"
+version = "0.2.0"
+description = "Generic raw-first web page & document archiver: acquire, hash, version, and compile sources into readable Markdown evidence"
 requires-python = ">=3.12"
 dependencies = [
   "aiofiles>=24.1,<25",
   "beautifulsoup4>=4.13,<5",
+  "charset-normalizer>=3.4,<4",
   "fastapi>=0.116,<1",
   "httpx>=0.28,<1",
   "python-multipart>=0.0.20,<1",
@@ -26,7 +27,7 @@ test = [
 ]
 
 [project.scripts]
-sci-acquisition = "sci_radar.acquisition.main:run"
+clipdeck = "clipdeck.acquisition.main:run"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -38,4 +39,4 @@ addopts = "-q --strict-markers"
 markers = ["integration: integration tests"]
 
 [tool.coverage.run]
-source = ["sci_radar.acquisition", "sci_radar.ingestion"]
+source = ["clipdeck.acquisition", "clipdeck.ingestion"]

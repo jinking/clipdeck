@@ -2,7 +2,7 @@ import socket
 
 import pytest
 
-from sci_radar.acquisition.security import UnsafeTargetError, validate_public_http_url
+from clipdeck.acquisition.security import UnsafeTargetError, validate_public_http_url
 
 
 @pytest.mark.asyncio

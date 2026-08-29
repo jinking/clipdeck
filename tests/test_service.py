@@ -1,9 +1,9 @@
 import pytest
 
-from sci_radar.acquisition.domain import AcquisitionInput, SourceKind, TaskStatus
-from sci_radar.acquisition.repository import SQLiteRepository
-from sci_radar.acquisition.service import AcquisitionService
-from sci_radar.acquisition.storage import LocalBlobStore
+from clipdeck.acquisition.domain import AcquisitionInput, SourceKind, TaskStatus
+from clipdeck.acquisition.repository import SQLiteRepository
+from clipdeck.acquisition.service import AcquisitionService
+from clipdeck.acquisition.storage import LocalBlobStore
 
 
 @pytest.fixture

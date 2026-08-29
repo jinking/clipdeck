@@ -1,6 +1,6 @@
 import pytest
 
-from sci_radar.acquisition.storage import LocalBlobStore
+from clipdeck.acquisition.storage import LocalBlobStore
 
 
 @pytest.mark.asyncio

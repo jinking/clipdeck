@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sci_radar.ingestion.metadata import extract_identifiers
+from clipdeck.ingestion.metadata import extract_identifiers
 
 
 def test_extract_identifiers_empty_and_none() -> None:

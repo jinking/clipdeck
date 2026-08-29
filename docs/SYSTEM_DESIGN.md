@@ -1,8 +1,8 @@
-# SCI Acquisition 下载系统设计 V1.1
+# Clipdeck 下载系统设计 V1.1
 
 ## 1. 产品定位
 
-SCI Acquisition 是一个单一职责应用：接收公开 URL、本地文件或粘贴文字，把输入完整、可追溯、可版本化地保存为 `RawAsset`。
+Clipdeck 是一个通用网页与文档保存/归档应用（由早期领域专用采集器通用化而来）：接收公开 URL、本地文件或粘贴文字，把输入完整、可追溯、可版本化地保存为 `RawAsset`。站点适配（平台显示名、标识符提取、提示词模板）由 `config/site_profiles.json` 配置驱动，引擎本身与任何具体领域无关。
 
 它的终点是 RawAsset，不是“可阅读文章”。下列能力明确属于后续 Ingestion：
 

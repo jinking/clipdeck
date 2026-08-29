@@ -86,6 +86,36 @@ $('#file-form').addEventListener('submit', (event) => {
   submitForm(form, () => request('/api/v1/acquisitions/file', {method: 'POST', body: new FormData(form)}));
 });
 
+$('#batch-submit').addEventListener('click', async (event) => {
+  const button = event.currentTarget;
+  const urls = $('#batch-urls').value.split('\n').map((line) => line.trim()).filter(Boolean);
+  if (!urls.length) { toast('请先粘贴至少一个 URL', true); return; }
+  button.disabled = true;
+  try {
+    const result = await request('/api/v1/acquisitions/batch', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({urls}),
+    });
+    toast(`批量提交：${result.submitted.length} 个任务入队` +
+      (result.rejected.length ? `，${result.rejected.length} 个被跳过` : ''));
+    $('#batch-urls').value = '';
+    await loadDashboard();
+  } catch (error) { toast(error.message, true); }
+  finally { button.disabled = false; }
+});
+
+// Bookmarklet adapts to whatever origin the workbench is served from.
+(() => {
+  const anchor = $('#bookmarklet');
+  if (!anchor) return;
+  anchor.href = `javascript:(function(){location.href='${location.origin}/api/v1/save?url='+encodeURIComponent(location.href)})();`;
+})();
+
+if (new URLSearchParams(location.search).get('saved')) {
+  history.replaceState(null, '', location.pathname);
+  setTimeout(() => toast('已通过书签工具收入库中，正在后台抓取'), 300);
+}
+
 function formatBytes(bytes) {
   if (!bytes) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB'];
@@ -152,15 +182,123 @@ async function loadDashboard() {
     }
     const evidenceRows = $('#evidence-rows');
     if (!evidence.length) {
-      evidenceRows.innerHTML = '<tr class="empty"><td colspan="6">还没有 Evidence。文本和网页会自动入库，PDF / Word 请在采集记录中确认解析。</td></tr>';
+      evidenceRows.innerHTML = '<tr class="empty"><td colspan="5">还没有 Evidence。文本和网页会自动入库，PDF / Word 请在采集记录中确认解析。</td></tr>';
     } else {
-      evidenceRows.innerHTML = evidence.map((item) => `<tr><td class="content-cell"><strong>${escapeHtml(item.evidence_id)}</strong><small>${escapeHtml(item.view_uri || '')}</small></td><td><span class="tag status-${statusClass(String(item.status || 'unknown'))}">${escapeHtml(statusLabels[item.status] || item.status)}</span></td><td>${escapeHtml(item.asset_id)}</td><td>${escapeHtml(String(item.pipeline_fingerprint || '').slice(0, 12))}</td><td>${new Date(item.created_at).toLocaleString('zh-CN', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}</td><td><span class="action-links"><a class="download-link" href="/api/v1/evidence/${encodeURIComponent(item.evidence_id)}/content" target="_blank" rel="noopener">Markdown</a><a class="download-link" href="/api/v1/evidence/${encodeURIComponent(item.evidence_id)}/package">下载包</a></span></td></tr>`).join('');
+      evidenceRows.innerHTML = evidence.map(renderEvidenceRow).join('');
+      wireTagEditors();
     }
+    await loadTagCloud();
   } catch (error) {
     if (setSystemState(false)) toast(`读取账本失败：${error.message}`, true);
   }
   finally { dashboardLoading = false; }
 }
+
+function renderEvidenceRow(item) {
+  const title = item.title || item.evidence_id;
+  const tags = (item.tags || []).map((tag) =>
+    `<button class="tag-chip" type="button" data-tag-search="${escapeHtml(tag)}" title="按此标签筛选">#${escapeHtml(tag)}</button>`
+  ).join(' ');
+  const time = item.created_at
+    ? new Date(item.created_at).toLocaleString('zh-CN', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})
+    : '—';
+  return `<tr data-evidence-id="${escapeHtml(item.evidence_id)}"><td class="content-cell"><strong title="${escapeHtml(title)}"><a class="download-link" href="/api/v1/evidence/${encodeURIComponent(item.evidence_id)}/content" target="_blank" rel="noopener">${escapeHtml(title)}</a></strong><small title="${escapeHtml(item.evidence_id)}">${escapeHtml(item.evidence_id)}</small></td><td><span class="tag status-${statusClass(String(item.status || 'unknown'))}">${escapeHtml(statusLabels[item.status] || item.status)}</span></td><td><span class="tag-list">${tags || '<small>—</small>'}</span><button class="tag-add" type="button" data-tag-add="${escapeHtml(item.evidence_id)}" title="编辑标签">＋</button></td><td>${time}</td><td><span class="action-links"><a class="download-link" href="/api/v1/evidence/${encodeURIComponent(item.evidence_id)}/package">下载包</a></span></td></tr>`;
+}
+
+function wireTagEditors() {
+  $$('#evidence-rows [data-tag-add]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const evidenceId = button.dataset.tagAdd;
+      const current = [...button.closest('tr').querySelectorAll('[data-tag-search]')]
+        .map((chip) => chip.dataset.tagSearch);
+      const input = window.prompt('标签（用空格分隔多个）：', current.join(' '));
+      if (input === null) return;
+      try {
+        await request(`/api/v1/evidence/${encodeURIComponent(evidenceId)}/tags`, {
+          method: 'PUT', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({tags: input.split(/[\s,]+/).filter(Boolean)}),
+        });
+        toast('标签已更新');
+        await loadDashboard();
+      } catch (error) { toast(error.message, true); }
+    });
+  });
+  $$('#evidence-rows [data-tag-search]').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      $('#search-input').value = '';
+      runTagSearch(chip.dataset.tagSearch);
+    });
+  });
+}
+
+async function loadTagCloud() {
+  const cloud = $('#tag-cloud');
+  if (!cloud) return;
+  try {
+    const tags = await request('/api/v1/tags?limit=20');
+    cloud.innerHTML = tags.length
+      ? tags.map((item) => `<button class="tag-chip" type="button" data-tag-search="${escapeHtml(item.name)}">#${escapeHtml(item.name)} <small>${item.count}</small></button>`).join('')
+      : '';
+    cloud.querySelectorAll('[data-tag-search]').forEach((chip) => {
+      chip.addEventListener('click', () => { $('#search-input').value = ''; runTagSearch(chip.dataset.tagSearch); });
+    });
+  } catch (_) { cloud.innerHTML = ''; }
+}
+
+let searching = false;
+async function runSearch() {
+  const query = $('#search-input').value.trim();
+  if (!query) { clearSearch(); return; }
+  const evidenceRows = $('#evidence-rows');
+  evidenceRows.innerHTML = '<tr class="empty"><td colspan="5">搜索中…</td></tr>';
+  searching = true;
+  $('#search-clear').hidden = false;
+  try {
+    const data = await request(`/api/v1/search?q=${encodeURIComponent(query)}&limit=50`);
+    if (!data.results.length) {
+      evidenceRows.innerHTML = `<tr class="empty"><td colspan="5">没有匹配「${escapeHtml(query)}」的已归档内容。</td></tr>`;
+    } else {
+      evidenceRows.innerHTML = data.results.map((item) => renderEvidenceRow({
+        evidence_id: item.evidence_id, title: item.title, status: item.status || 'success',
+        created_at: item.created_at, tags: item.tags || [],
+      }) + (item.snippet ? `<tr class="snippet-row"><td colspan="5"><small class="snippet">${escapeHtml(item.snippet)}</small></td></tr>` : '')).join('');
+      wireTagEditors();
+    }
+  } catch (error) {
+    evidenceRows.innerHTML = `<tr class="empty"><td colspan="5">搜索失败：${escapeHtml(error.message)}</td></tr>`;
+  }
+  finally { searching = false; }
+}
+
+async function runTagSearch(tag) {
+  const evidenceRows = $('#evidence-rows');
+  searching = true;
+  $('#search-clear').hidden = false;
+  evidenceRows.innerHTML = '<tr class="empty"><td colspan="5">按标签筛选中…</td></tr>';
+  try {
+    const data = await request(`/api/v1/search?tag=${encodeURIComponent(tag)}&limit=50`);
+    evidenceRows.innerHTML = data.results.length
+      ? data.results.map((item) => renderEvidenceRow({
+          evidence_id: item.evidence_id, title: item.title, status: item.status || 'success',
+          created_at: item.created_at, tags: item.tags || [],
+        })).join('')
+      : `<tr class="empty"><td colspan="5">没有带「#${escapeHtml(tag)}」标签的内容。</td></tr>`;
+    wireTagEditors();
+  } catch (error) { toast(error.message, true); }
+  finally { searching = false; }
+}
+
+function clearSearch() {
+  $('#search-input').value = '';
+  $('#search-clear').hidden = true;
+  loadDashboard();
+}
+
+$('#search-input').addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') { event.preventDefault(); runSearch(); }
+  if (event.key === 'Escape') clearSearch();
+});
+$('#search-clear').addEventListener('click', clearSearch);
 
 function escapeHtml(value) {
   return String(value || '').replace(/[&<>'"]/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));

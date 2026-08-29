@@ -49,12 +49,18 @@
         <div class="capture-panel active" id="panel-url" role="tabpanel" aria-labelledby="tab-url">
           <form id="url-form">
             <label for="url">公开资源 URL</label>
-            <div class="url-row"><input id="url" name="url" type="url" placeholder="https://mp.weixin.qq.com/s/..." required><button type="submit">开始采集 <span>→</span></button></div>
+            <div class="url-row"><input id="url" name="url" type="url" placeholder="https://example.com/article..." required><button type="submit">开始采集 <span>→</span></button></div>
             <div class="form-options">
               <label class="check"><input name="capture_screenshot" type="checkbox"><span></span>同时保存截图</label>
               <p>自动识别普通网页、微信文章、PDF、视频与播客直链</p>
             </div>
           </form>
+          <details class="batch-box">
+            <summary>批量导入（每行一个 URL）</summary>
+            <textarea id="batch-urls" rows="5" placeholder="https://example.com/a&#10;https://example.com/b"></textarea>
+            <button id="batch-submit" type="button">批量提交 →</button>
+          </details>
+          <p class="bookmarklet-hint">随手保存：把 <a href="#" id="bookmarklet" title="拖拽此链接到浏览器书签栏">📌 存到 Clipdeck</a> 拖到书签栏，在任意网页点击即可一键归档。</p>
         </div>
 
         <div class="capture-panel" id="panel-file" role="tabpanel" aria-labelledby="tab-file" hidden>
@@ -129,10 +135,15 @@
           <div><p class="eyebrow">EVIDENCE LIBRARY</p><h2 id="evidence-title">统一入库</h2></div>
           <p>Markdown、Metadata 与图片保存在文件系统的只读双视图中；SQLite 仅保存引用、状态和追溯信息。</p>
         </div>
+        <div class="search-row">
+          <input id="search-input" type="search" placeholder="全文搜索已归档内容…（回车搜索，Esc 清除）" aria-label="全文搜索">
+          <button id="search-clear" type="button" hidden>清除</button>
+        </div>
+        <div class="tag-cloud" id="tag-cloud" aria-label="标签筛选"></div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Evidence</th><th>状态</th><th>原始资产</th><th>Pipeline</th><th>时间</th><th>操作</th></tr></thead>
-            <tbody id="evidence-rows"><tr class="empty"><td colspan="6">正在读取 Evidence…</td></tr></tbody>
+            <thead><tr><th>标题</th><th>状态</th><th>标签</th><th>时间</th><th>操作</th></tr></thead>
+            <tbody id="evidence-rows"><tr class="empty"><td colspan="5">正在读取 Evidence…</td></tr></tbody>
           </table>
         </div>
       </div>

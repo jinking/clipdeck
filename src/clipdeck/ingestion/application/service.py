@@ -15,6 +15,7 @@ from uuid import UUID, uuid4
 from bs4 import BeautifulSoup
 
 from clipdeck.acquisition.domain import BlobRole, RawAsset, ResourceType, utcnow
+from clipdeck.acquisition.encoding import decode_html
 from clipdeck.acquisition.repository import SQLiteRepository
 from clipdeck.acquisition.storage import LocalBlobStore, extension_for_blob
 from clipdeck.ingestion.application.evidence_assembler import _simple_yaml
@@ -383,7 +384,7 @@ class IngestionService:
 
     async def _convert_local(self, asset: RawAsset, options: IngestionOptions) -> _LocalConversion:
         data = await self.blob_store.get(asset.primary_blob.blob_id)
-        text = data.decode("utf-8", errors="replace")
+        text = decode_html(data, asset.primary_blob.mime_type)
         if asset.resource_type is ResourceType.TEXT:
             return _LocalConversion(
                 markdown=text.replace("\r\n", "\n").replace("\r", "\n"),

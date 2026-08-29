@@ -10,8 +10,9 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from clipdeck.ingestion import search as search_module
 from clipdeck.ingestion.domain.models import IngestionOptions, IngestionStatus
 from clipdeck.ingestion.policy import ExternalProcessingDenied, ensure_external_processing_allowed
 
@@ -87,7 +88,68 @@ async def get_ingestion(run_id: UUID, request: Request):
 
 @router.get("/evidence")
 async def list_evidence(request: Request, limit: int = 100):
-    return await request.app.state.ingestion_repository.list_evidence(min(max(limit, 1), 200))
+    repository = request.app.state.ingestion_repository
+    evidence = await repository.list_evidence(min(max(limit, 1), 200))
+    tag_map = await repository.tags_for_evidences([item.evidence_id for item in evidence])
+
+    def titles() -> dict[str, str | None]:
+        return {
+            item.evidence_id: search_module.evidence_title(item.view_uri or item.package_path)
+            for item in evidence
+        }
+    titles_map = await asyncio.to_thread(titles)
+    return [
+        {
+            **item.model_dump(mode="json"),
+            "tags": tag_map.get(item.evidence_id, []),
+            "title": titles_map.get(item.evidence_id),
+        }
+        for item in evidence
+    ]
+
+
+@router.get("/search")
+async def search_evidence(request: Request, q: str = "", tag: str | None = None, limit: int = 30):
+    repository = request.app.state.ingestion_repository
+    query = q.strip()
+    tag_name = (tag or "").strip().lstrip("#") or None
+    if not query and not tag_name:
+        raise HTTPException(status_code=422, detail="Provide a search query q or a tag filter")
+    evidence_ids = None
+    if tag_name:
+        evidence_ids = set(await repository.tag_evidence_ids(tag_name, limit=2000))
+        if not evidence_ids:
+            return {"query": query, "tag": tag_name, "results": []}
+    root = request.app.state.ingestion_service.evidence_root
+    matches = await asyncio.to_thread(
+        search_module.search, root, query,
+        evidence_ids=evidence_ids, limit=min(max(limit, 1), 100), allow_empty_query=True,
+    )
+    tag_map = await repository.tags_for_evidences([item["evidence_id"] for item in matches])
+    for item in matches:
+        item["tags"] = tag_map.get(item["evidence_id"], [])
+        document = await repository.get_evidence(item["evidence_id"])
+        item["created_at"] = document.created_at.isoformat() if document else None
+        item["asset_id"] = str(document.asset_id) if document else None
+        item["status"] = document.status.value if document else "unknown"
+    return {"query": query, "tag": tag_name, "results": matches}
+
+
+@router.get("/tags")
+async def list_tags(request: Request, limit: int = 100):
+    return await request.app.state.ingestion_repository.list_tags(min(max(limit, 1), 200))
+
+
+class TagUpdate(BaseModel):
+    tags: list[str] = Field(default_factory=list, max_length=32)
+
+
+@router.put("/evidence/{evidence_id}/tags")
+async def set_tags(evidence_id: str, payload: TagUpdate, request: Request):
+    evidence = await _evidence_or_404(request, evidence_id)
+    repository = request.app.state.ingestion_repository
+    names = await repository.set_evidence_tags(evidence.evidence_id, payload.tags)
+    return {"evidence_id": evidence.evidence_id, "tags": names}
 
 
 async def _evidence_or_404(request: Request, evidence_id: str):

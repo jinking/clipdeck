@@ -7,7 +7,7 @@ import tempfile
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Request, UploadFile, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from clipdeck.acquisition.domain import AcquisitionInput, BlobRole, SourceKind
@@ -43,6 +43,55 @@ async def execute_task(request: Request, task_id: UUID) -> None:
         except Exception:
             # Acquisition remains successful; Layer 3 persists its own failure state.
             return
+
+
+class BatchSubmission(BaseModel):
+    urls: list[str] = Field(min_length=1, max_length=200)
+    capture_screenshot: bool = False
+
+
+@router.post("/acquisitions/batch", status_code=status.HTTP_201_CREATED)
+async def submit_batch(payload: BatchSubmission, request: Request, background: BackgroundTasks):
+    """Submit many URLs at once; each becomes an independent acquisition task."""
+    service_instance = service(request)
+    submitted: list[dict[str, str]] = []
+    rejected: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for raw_url in payload.urls:
+        candidate = (raw_url or "").strip()
+        if not candidate:
+            continue
+        try:
+            normalized = service_instance.classifier.normalize_url(candidate)
+        except ValueError as exc:
+            rejected.append({"url": candidate, "reason": str(exc)})
+            continue
+        if normalized in seen:
+            rejected.append({"url": candidate, "reason": "duplicate_in_batch"})
+            continue
+        seen.add(normalized)
+        try:
+            task = await service_instance.submit(AcquisitionInput(
+                source_kind=SourceKind.URL, url=candidate,
+                capture_screenshot=payload.capture_screenshot,
+            ))
+        except ValueError as exc:
+            rejected.append({"url": candidate, "reason": str(exc)})
+            continue
+        submitted.append({"task_id": str(task.task_id), "url": candidate})
+        background.add_task(execute_task, request, task.task_id)
+    return {"submitted": submitted, "rejected": rejected}
+
+
+@router.get("/save", include_in_schema=False)
+async def quick_save(request: Request, background: BackgroundTasks, url: str):
+    """Bookmarklet endpoint: save a URL via a plain GET and bounce back to the UI."""
+    try:
+        task = await service(request).submit(AcquisitionInput(source_kind=SourceKind.URL, url=url))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    background.add_task(execute_task, request, task.task_id)
+    return RedirectResponse("/?saved=1", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.post("/acquisitions", status_code=status.HTTP_201_CREATED)

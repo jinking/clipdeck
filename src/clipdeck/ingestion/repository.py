@@ -93,6 +93,13 @@ class SQLiteIngestionRepository:
                 aggregate_id TEXT NOT NULL, payload_json TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, published_at TEXT
             );
+            CREATE TABLE IF NOT EXISTS tags (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE
+            );
+            CREATE TABLE IF NOT EXISTS evidence_tags (
+                evidence_id TEXT NOT NULL, tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+                PRIMARY KEY (evidence_id, tag_id)
+            );
             """
         )
         self._connection.commit()
@@ -395,3 +402,65 @@ class SQLiteIngestionRepository:
             "SELECT payload_json FROM evidence_documents ORDER BY created_at DESC LIMIT ?", (limit,)
         ).fetchall())
         return [EvidenceDocument.model_validate_json(row["payload_json"]) for row in rows]
+
+    async def set_evidence_tags(self, evidence_id: str, names: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        for name in names:
+            value = name.strip().lstrip("#")
+            if value and value not in cleaned:
+                cleaned.append(value[:64])
+
+        def apply(db: sqlite3.Connection) -> None:
+            db.execute("DELETE FROM evidence_tags WHERE evidence_id=?", (evidence_id,))
+            for value in cleaned:
+                db.execute("INSERT OR IGNORE INTO tags(name) VALUES(?)", (value,))
+                tag_id = db.execute("SELECT id FROM tags WHERE name=?", (value,)).fetchone()["id"]
+                db.execute(
+                    "INSERT OR IGNORE INTO evidence_tags(evidence_id, tag_id) VALUES(?,?)",
+                    (evidence_id, tag_id),
+                )
+        await self._run(apply)
+        return cleaned
+
+    async def list_tags(self, limit: int = 100) -> list[dict[str, Any]]:
+        def rows(db: sqlite3.Connection) -> list[sqlite3.Row]:
+            return db.execute(
+                """SELECT t.name AS name, COUNT(et.evidence_id) AS count
+                   FROM tags t LEFT JOIN evidence_tags et ON et.tag_id = t.id
+                   GROUP BY t.id ORDER BY count DESC, t.name LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        return [
+            {"name": row["name"], "count": row["count"]}
+            for row in await self._run(rows)
+        ]
+
+    async def tags_for_evidences(self, evidence_ids: list[str]) -> dict[str, list[str]]:
+        if not evidence_ids:
+            return {}
+
+        def rows(db: sqlite3.Connection) -> list[sqlite3.Row]:
+            placeholders = ",".join("?" for _ in evidence_ids)
+            return db.execute(
+                f"""SELECT et.evidence_id AS evidence_id, t.name AS name
+                    FROM evidence_tags et JOIN tags t ON t.id = et.tag_id
+                    WHERE et.evidence_id IN ({placeholders})
+                    ORDER BY t.name""",
+                evidence_ids,
+            ).fetchall()
+        mapping: dict[str, list[str]] = {}
+        for row in await self._run(rows):
+            mapping.setdefault(row["evidence_id"], []).append(row["name"])
+        return mapping
+
+    async def tag_evidence_ids(self, tag: str, limit: int = 500) -> list[str]:
+        """Evidence ids carrying a given tag (used to scope filesystem search)."""
+        def rows(db: sqlite3.Connection) -> list[sqlite3.Row]:
+            return db.execute(
+                """SELECT et.evidence_id AS evidence_id FROM evidence_tags et
+                   JOIN tags t ON t.id = et.tag_id WHERE t.name=? LIMIT ?""",
+                (tag, limit),
+            ).fetchall()
+        return [row["evidence_id"] for row in await self._run(rows)]
+
+

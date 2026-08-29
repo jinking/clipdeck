@@ -23,6 +23,7 @@ from clipdeck.acquisition.domain import (
     ResourceType,
     ValidationStatus,
 )
+from clipdeck.acquisition.encoding import decode_html
 from clipdeck.acquisition.security import UnsafeTargetError, resolve_public_http_url, validate_public_http_url
 
 
@@ -44,10 +45,12 @@ def error_for_status(status: int) -> tuple[str, bool]:
     return ErrorCode.HTTP_ERROR, False
 
 
-def validate_html_content_quality(content: bytes | str) -> tuple[bool, str | None, str | None]:
+def validate_html_content_quality(
+    content: bytes | str, content_type: str | None = None,
+) -> tuple[bool, str | None, str | None]:
     """Validate whether captured HTML contains meaningful text or is an empty/blocked skeleton."""
     if isinstance(content, bytes):
-        text_html = content.decode("utf-8", errors="replace")
+        text_html = decode_html(content, content_type)
     else:
         text_html = str(content)
 
@@ -174,7 +177,7 @@ class DirectDownloadProvider(AcquisitionProvider):
                         data_bytes = b"".join(chunks)
                         mime = response.headers.get("content-type", "application/octet-stream").split(";", 1)[0]
                         if mime.lower() in {"text/html", "application/xhtml+xml"}:
-                            is_valid, err_tag, err_desc = validate_html_content_quality(data_bytes)
+                            is_valid, err_tag, err_desc = validate_html_content_quality(data_bytes, response.headers.get("content-type"))
                             if not is_valid:
                                 return ProviderFetchResult(
                                     success=False,

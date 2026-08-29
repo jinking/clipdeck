@@ -419,6 +419,8 @@ class SQLiteIngestionRepository:
                     "INSERT OR IGNORE INTO evidence_tags(evidence_id, tag_id) VALUES(?,?)",
                     (evidence_id, tag_id),
                 )
+            # Prune tag names that no longer reference any evidence.
+            db.execute("DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM evidence_tags)")
         await self._run(apply)
         return cleaned
 

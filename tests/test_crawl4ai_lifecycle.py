@@ -59,6 +59,14 @@ def fake_run_config(**kwargs: Any) -> dict[str, Any]:
     return kwargs
 
 
+# 质量门禁 CONTENT_TOO_SHORT 兜底：可见正文 <300 字符的空壳捕获会被拒绝。
+# 夹具结果需携带拟真长度正文，避免误触发门禁。
+LONG_BODY_HTML = (
+    "<html><body><article><h1>Sample Report</h1>"
+    "<p>" + "采集回归测试正文段落，覆盖真实网页的字节量级。" * 20 + "</p></article></body></html>"
+)
+
+
 @pytest.mark.asyncio
 async def test_crawl4ai_reuses_started_crawler_and_closes_it() -> None:
     crawler = FakeCrawler(
@@ -66,7 +74,7 @@ async def test_crawl4ai_reuses_started_crawler_and_closes_it() -> None:
             SimpleNamespace(
                 success=True,
                 url="https://example.com/one",
-                html="<html>one</html>",
+                html=LONG_BODY_HTML,
                 status_code=200,
                 response_headers={"content-type": "text/html"},
                 screenshot=None,
@@ -75,7 +83,7 @@ async def test_crawl4ai_reuses_started_crawler_and_closes_it() -> None:
             SimpleNamespace(
                 success=True,
                 url="https://example.com/two",
-                html="<html>two</html>",
+                html=LONG_BODY_HTML,
                 status_code=200,
                 response_headers={"content-type": "text/html"},
                 screenshot=None,
@@ -120,7 +128,7 @@ async def test_crawl4ai_saves_rendered_html_screenshot_optional_mhtml_and_header
             SimpleNamespace(
                 success=True,
                 url="https://example.com/final",
-                html="<html>rendered</html>",
+                html=LONG_BODY_HTML,
                 status_code=203,
                 response_headers={"content-type": "text/html; charset=utf-8", "etag": "abc"},
                 screenshot=screenshot,
@@ -149,7 +157,7 @@ async def test_crawl4ai_saves_rendered_html_screenshot_optional_mhtml_and_header
         BlobRole.SCREENSHOT,
         BlobRole.MHTML,
     ]
-    assert result.payloads[0].data == b"<html>rendered</html>"
+    assert result.payloads[0].data == LONG_BODY_HTML.encode("utf-8")
     assert result.payloads[1].data == b"png-bytes"
     assert result.payloads[2].data.startswith(b"From: mhtml")
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
+from typing import Any, Sequence
 from uuid import UUID, uuid4
 
 from clipdeck.acquisition.domain import (
@@ -12,6 +13,7 @@ from clipdeck.acquisition.domain import (
     BlobRole,
     FetchAttempt,
     ProviderFetchResult,
+    ProviderName,
     RawAsset,
     ResourceClassifier,
     ResourceType,
@@ -21,9 +23,14 @@ from clipdeck.acquisition.domain import (
     ingestion_hint,
     utcnow,
 )
-from clipdeck.acquisition.providers import ProviderResolver
+from clipdeck.acquisition.encoding import decode_html
+from clipdeck.acquisition.providers import AcquisitionProvider, ProviderResolver, SpiderBypassProvider
 from clipdeck.acquisition.repository import SQLiteRepository
 from clipdeck.acquisition.storage import LocalBlobStore
+from clipdeck.acquisition.truncation import TruncationDetector
+
+
+_DEFAULT_SPIDER: Any = object()
 
 
 class AcquisitionService:
@@ -36,6 +43,9 @@ class AcquisitionService:
         resolver: ProviderResolver | None = None,
         max_attempts: int = 3,
         max_concurrency: int = 5,
+        login_provider: AcquisitionProvider | None = None,
+        spider_provider: AcquisitionProvider | None = _DEFAULT_SPIDER,
+        truncation_detector: TruncationDetector | None = None,
     ):
         self.repository = repository
         self.blob_store = blob_store
@@ -43,6 +53,9 @@ class AcquisitionService:
         self.resolver = resolver or ProviderResolver()
         self.max_attempts = max_attempts
         self.max_concurrency = max_concurrency
+        self.login_provider = login_provider
+        self.spider_provider = SpiderBypassProvider() if spider_provider is _DEFAULT_SPIDER else spider_provider
+        self.truncation_detector = truncation_detector
         self._semaphore = asyncio.Semaphore(max(1, max_concurrency))
 
     async def submit(self, request: AcquisitionInput) -> AcquisitionTask:
@@ -171,24 +184,180 @@ class AcquisitionService:
 
             attempt.status = AttemptStatus.SUCCESS
             await self.repository.save_attempt(attempt)
-            asset = await self._assemble(task, attempt, result)
-            try:
-                await self.blob_store.materialize_asset_view(asset)
-            except OSError as exc:
-                asset.warnings.append(f"asset_view_failed:{type(exc).__name__}")
-            task.latest_asset_id = asset.asset_id
-            task.status = asset.acquisition_status
-            task.finished_at = utcnow()
-            await self.repository.complete_task_with_asset(task, asset)
-            return asset
+
+            truncation = self._detect_truncation(task, result)
+            if truncation is None:
+                return await self._finalize(task, attempt, result)
+
+            # The anonymous capture rendered fine but the server withheld the
+            # remainder behind a login gate. Archive the truncated capture as
+            # provenance, then try tiered upgrades (Spider bypass -> Login browser).
+            result.provider_meta["truncation"] = truncation
+            extra_warnings = [f"login_truncated:{truncation['marker']}"]
+            target_url = result.final_url or task.normalized_transport_url or task.requested_url or ""
+
+            upgraded_result: ProviderFetchResult | None = None
+            upgraded_provider: ProviderName | None = None
+            upgrade_warning: str | None = None
+            current_attempt_no = attempt.attempt_no
+            upgrade_attempt_no = current_attempt_no + 1
+
+            # Tier 1: Try search engine spider bypass (zero-overhead HTTP fetch).
+            if self.spider_provider is not None:
+                current_attempt_no += 1
+                spider_res, spider_err = await self._spider_upgrade(task, target_url)
+                if spider_res is not None:
+                    upgraded_result = spider_res
+                    upgraded_provider = ProviderName.SPIDER_BYPASS
+                    upgrade_warning = "spider_upgraded"
+                    upgrade_attempt_no = current_attempt_no
+                elif spider_err:
+                    extra_warnings.append(spider_err)
+                    await self.repository.save_attempt(
+                        FetchAttempt(
+                            task_id=task.task_id,
+                            attempt_no=current_attempt_no,
+                            provider_name=ProviderName.SPIDER_BYPASS,
+                            requested_url=target_url,
+                            final_url=target_url,
+                            error_code=spider_err,
+                            status=AttemptStatus.PERMANENT_FAILURE,
+                            finished_at=utcnow(),
+                        )
+                    )
+
+            # Tier 2: Try user's logged-in browser over CDP.
+            if upgraded_result is None and self.login_provider is not None:
+                current_attempt_no += 1
+                login_res, login_err = await self._login_upgrade(task, target_url)
+                if login_res is not None:
+                    upgraded_result = login_res
+                    upgraded_provider = ProviderName.LOGIN_BROWSER
+                    upgrade_warning = "login_upgraded"
+                    upgrade_attempt_no = current_attempt_no
+                elif login_err:
+                    extra_warnings.append(login_err)
+                    await self.repository.save_attempt(
+                        FetchAttempt(
+                            task_id=task.task_id,
+                            attempt_no=current_attempt_no,
+                            provider_name=ProviderName.LOGIN_BROWSER,
+                            requested_url=target_url,
+                            final_url=target_url,
+                            error_code=login_err,
+                            status=AttemptStatus.PERMANENT_FAILURE,
+                            finished_at=utcnow(),
+                        )
+                    )
+
+            anonymous_asset = await self._finalize(task, attempt, result, extra_warnings=extra_warnings)
+            if upgraded_result is None or upgraded_provider is None:
+                return anonymous_asset
+
+            upgrade_attempt = FetchAttempt(
+                task_id=task.task_id,
+                attempt_no=upgrade_attempt_no,
+                provider_name=upgraded_provider,
+                requested_url=attempt.requested_url,
+                final_url=upgraded_result.final_url,
+                http_status=upgraded_result.http_status,
+                response_headers=upgraded_result.response_headers,
+                redirect_chain=upgraded_result.redirect_chain,
+                validation_status=upgraded_result.validation_status,
+                status=AttemptStatus.SUCCESS,
+                finished_at=utcnow(),
+            )
+            await self.repository.save_attempt(upgrade_attempt)
+            return await self._finalize(
+                task,
+                upgrade_attempt,
+                upgraded_result,
+                provider_name=upgraded_provider,
+                extra_warnings=[upgrade_warning] if upgrade_warning else [],
+            )
         return None
+
+    def _detect_truncation(
+        self, task: AcquisitionTask, result: ProviderFetchResult
+    ) -> dict | None:
+        """Login/paywall truncation check for successful web-page captures."""
+        if self.truncation_detector is None:
+            return None
+        if self.login_provider is None and self.spider_provider is None:
+            return None
+        if task.resource_type is not ResourceType.WEB_PAGE:
+            return None
+        primary = next((p for p in result.payloads if p.is_primary), None)
+        if primary is None or not primary.data:
+            return None
+        html = decode_html(primary.data, primary.mime_type)
+        url = result.final_url or task.normalized_transport_url or task.requested_url or ""
+        return self.truncation_detector.detect(url, html)
+
+    async def _spider_upgrade(
+        self, task: AcquisitionTask, target_url: str
+    ) -> tuple[ProviderFetchResult | None, str | None]:
+        if self.spider_provider is None:
+            return None, None
+        try:
+            upgraded = await self.spider_provider.fetch(target_url, capture_screenshot=task.capture_screenshot)
+        except Exception as exc:
+            return None, f"spider_upgrade_error:{type(exc).__name__}"
+        if not upgraded.success:
+            return None, f"spider_upgrade_failed:{upgraded.error_code or 'unknown'}"
+        if self._detect_truncation(task, upgraded) is not None:
+            return None, "spider_upgrade_still_truncated"
+        return upgraded, None
+
+    async def _login_upgrade(
+        self, task: AcquisitionTask, target_url: str
+    ) -> tuple[ProviderFetchResult | None, str | None]:
+        if self.login_provider is None:
+            return None, None
+        try:
+            upgraded = await self.login_provider.fetch(target_url, capture_screenshot=task.capture_screenshot)
+        except Exception as exc:
+            return None, f"login_upgrade_error:{type(exc).__name__}"
+        if not upgraded.success:
+            return None, f"login_upgrade_failed:{upgraded.error_code or 'unknown'}"
+        if self._detect_truncation(task, upgraded) is not None:
+            return None, "login_upgrade_still_truncated"
+        return upgraded, None
+
+    async def _finalize(
+        self,
+        task: AcquisitionTask,
+        attempt: FetchAttempt,
+        result: ProviderFetchResult,
+        *,
+        provider_name: ProviderName | None = None,
+        extra_warnings: Sequence[str] = (),
+    ) -> RawAsset:
+        result.warnings.extend(extra_warnings)
+        asset = await self._assemble(task, attempt, result, provider_name=provider_name)
+        try:
+            await self.blob_store.materialize_asset_view(asset)
+        except OSError as exc:
+            asset.warnings.append(f"asset_view_failed:{type(exc).__name__}")
+        task.latest_asset_id = asset.asset_id
+        task.status = asset.acquisition_status
+        task.finished_at = utcnow()
+        await self.repository.complete_task_with_asset(task, asset)
+        return asset
 
     async def _store_payload(self, payload) -> BlobRef:
         return await self.blob_store.put(
             payload.data, mime_type=payload.mime_type, role=payload.role, original_url=payload.original_url,
         )
 
-    async def _assemble(self, task: AcquisitionTask, attempt: FetchAttempt, result: ProviderFetchResult) -> RawAsset:
+    async def _assemble(
+        self,
+        task: AcquisitionTask,
+        attempt: FetchAttempt,
+        result: ProviderFetchResult,
+        *,
+        provider_name: ProviderName | None = None,
+    ) -> RawAsset:
         stored: list[BlobRef] = []
         child_assets: list[BlobRef] = []
         primary: BlobRef | None = task.staged_blob
@@ -218,7 +387,7 @@ class AcquisitionService:
             resource_key=resource_key,
             version_no=version_no,
             resource_type=task.resource_type,
-            provider_name=task.provider_name,
+            provider_name=provider_name or task.provider_name,
             requested_url=task.requested_url,
             final_url=result.final_url or task.normalized_transport_url,
             http_status=result.http_status,

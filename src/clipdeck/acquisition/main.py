@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -14,10 +15,12 @@ from dotenv import load_dotenv
 
 from clipdeck.acquisition.api import router
 from clipdeck.acquisition.domain import ResourceType
-from clipdeck.acquisition.providers import ProviderResolver
+from clipdeck.acquisition.providers import LoginBrowserProvider, ProviderResolver, SpiderBypassProvider
 from clipdeck.acquisition.repository import SQLiteRepository
 from clipdeck.acquisition.service import AcquisitionService
 from clipdeck.acquisition.storage import LocalBlobStore
+from clipdeck.acquisition.truncation import TruncationDetector
+from clipdeck.ingestion import site_profiles
 from clipdeck.ingestion.api import router as ingestion_router
 from clipdeck.ingestion.application import IngestionService
 from clipdeck.ingestion.providers.mineru.client import MinerUClient, MinerUSettings
@@ -26,6 +29,7 @@ from clipdeck.ingestion.repository import SQLiteIngestionRepository
 
 
 PACKAGE_ROOT = Path(__file__).parent
+logger = logging.getLogger(__name__)
 
 
 def _enabled(value: str | None) -> bool:
@@ -55,6 +59,19 @@ def create_app(data_root: str | Path | None = None, *, mineru_token: str | None 
     blob_store = LocalBlobStore(root)
     resolver = ProviderResolver()
     resolver.crawl4ai.base_directory = str(root / ".crawl4ai")
+
+    login_provider: LoginBrowserProvider | None = None
+    if _enabled(_env("CLIPDECK_LOGIN_BROWSER_ENABLED", legacy="SCI_LOGIN_BROWSER_ENABLED")):
+        try:
+            login_provider = LoginBrowserProvider(
+                cdp_url=_env("CLIPDECK_CDP_URL", legacy="SCI_CDP_URL", default="http://127.0.0.1:9222"),
+            )
+        except ValueError as exc:
+            logger.error("Login browser upgrade disabled: %s", exc)
+    truncation_detector = TruncationDetector(site_profiles.truncation_markers())
+    spider_provider: SpiderBypassProvider | None = None
+    if _enabled(_env("CLIPDECK_SPIDER_BYPASS_ENABLED", legacy="SCI_SPIDER_BYPASS_ENABLED", default="true")):
+        spider_provider = SpiderBypassProvider()
 
     token = mineru_token if mineru_token is not None else os.getenv("MINERU_API_TOKEN")
     mineru_client = None
@@ -117,6 +134,9 @@ def create_app(data_root: str | Path | None = None, *, mineru_token: str | None 
         app.state.service = AcquisitionService(
             repository=repository, blob_store=blob_store, resolver=resolver,
             max_concurrency=max_concurrency,
+            login_provider=login_provider,
+            spider_provider=spider_provider,
+            truncation_detector=truncation_detector,
         )
         app.state.ingestion_repository = ingestion_repository
         app.state.ingestion_service = ingestion_service
@@ -157,6 +177,8 @@ def create_app(data_root: str | Path | None = None, *, mineru_token: str | None 
         await asyncio.gather(acquisition_recovery, return_exceptions=True)
         await ingestion_worker.close()
         await resolver.crawl4ai.close()
+        if login_provider is not None:
+            await login_provider.close()
         await ingestion_repository.close()
         await repository.close()
 

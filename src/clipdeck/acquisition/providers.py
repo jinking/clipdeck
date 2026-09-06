@@ -99,6 +99,10 @@ def validate_html_content_quality(
             if len("".join(clean_text.split())) < 30:
                 return False, "NO_MEANINGFUL_CONTENT", "页面仅包含登录/版权备案信息，缺乏有效正文"
 
+        # 兜底：无任何已知拦截特征但可见文本过短，一律拒绝。此前该分支默认放行，
+        # 导致 JS 误删正文后仅剩 <title>（约百字符）的空壳 HTML 被标记 success 静默入库。
+        return False, "CONTENT_TOO_SHORT", f"可见正文过短 ({len(visible_text)} 字符)，疑似残缺或空壳捕获"
+
     return True, None, None
 
 
@@ -110,6 +114,7 @@ class DirectDownloadProvider(AcquisitionProvider):
         timeout_seconds: float = 30,
         transport: httpx.AsyncBaseTransport | None = None,
         url_validator: Callable[[str], Awaitable[None]] = validate_public_http_url,
+        default_headers: dict[str, str] | None = None,
     ):
         if transport is not None and not isinstance(transport, httpx.MockTransport):
             raise ValueError(
@@ -119,6 +124,7 @@ class DirectDownloadProvider(AcquisitionProvider):
         self.timeout_seconds = timeout_seconds
         self.transport = transport
         self.url_validator = url_validator
+        self.default_headers = default_headers or {"User-Agent": "Clipdeck/0.2"}
 
     async def fetch(self, url: str, *, capture_screenshot: bool = False) -> ProviderFetchResult:
         del capture_screenshot
@@ -126,7 +132,7 @@ class DirectDownloadProvider(AcquisitionProvider):
             async with httpx.AsyncClient(
                 follow_redirects=False,
                 timeout=httpx.Timeout(self.timeout_seconds),
-                headers={"User-Agent": "Clipdeck/0.2"},
+                headers=self.default_headers,
                 transport=self.transport,
                 trust_env=False,
                 limits=httpx.Limits(max_keepalive_connections=0),
@@ -494,12 +500,19 @@ def _dict_config_factory(**kwargs: Any) -> dict[str, Any]:
 class Crawl4AIProvider(AcquisitionProvider):
     """Crawl4AI adapter with a reusable browser and a raw HTTP fallback.
 
+    ``adapter_name`` and ``allow_http_fallback`` are subclass hooks: the
+    login-browser variant reports a distinct provenance and refuses to
+    silently degrade to an anonymous fetch.
+
     Crawl4AI is an optional, heavyweight dependency.  The adapter therefore
     imports it lazily and keeps the dependency boundary injectable so unit
     tests do not need a Playwright browser.  A caller that owns the application
     lifecycle can call :meth:`start` and :meth:`close`; :meth:`fetch` also
     starts the crawler lazily for backwards compatibility.
     """
+
+    adapter_name = "crawl4ai"
+    allow_http_fallback = True
 
     def __init__(
         self,
@@ -530,6 +543,33 @@ class Crawl4AIProvider(AcquisitionProvider):
         self._start_error: Exception | None = None
         self._resolved_run_config_factory: Callable[..., Any] | None = None
         self._resolved_cache_mode: Any | None = None
+
+    def _build_browser_kwargs(self) -> dict[str, Any]:
+        """BrowserConfig kwargs; overridden by the login-browser variant."""
+        return {
+            "headless": True,
+            "java_script_enabled": True,
+            "accept_downloads": False,
+            "ignore_https_errors": False,
+            "verbose": False,
+            "enable_stealth": True,
+            "user_agent_mode": "random",
+            "memory_saving_mode": True,
+            "max_pages_before_recycle": 30,
+        }
+
+    async def _unavailable(self, url: str, *, capture_screenshot: bool, reason: str) -> ProviderFetchResult:
+        """Produce the start-failure outcome: HTTP fallback or explicit failure."""
+        if self.allow_http_fallback:
+            return await self._fallback_fetch(url, capture_screenshot=capture_screenshot, reason=reason)
+        return ProviderFetchResult(
+            success=False,
+            requested_url=url,
+            error_code=ErrorCode.PROVIDER_ERROR,
+            error_message=f"{self.adapter_name} unavailable: {reason}",
+            retryable=True,
+            provider_meta={"adapter": self.adapter_name},
+        )
 
     async def start(self) -> bool:
         """Start one reusable crawler instance.
@@ -564,17 +604,7 @@ class Crawl4AIProvider(AcquisitionProvider):
 
             browser_config = None
             if browser_factory is not None:
-                browser_kwargs: dict[str, Any] = {
-                    "headless": True,
-                    "java_script_enabled": True,
-                    "accept_downloads": False,
-                    "ignore_https_errors": False,
-                    "verbose": False,
-                    "enable_stealth": True,
-                    "user_agent_mode": "random",
-                    "memory_saving_mode": True,
-                    "max_pages_before_recycle": 30,
-                }
+                browser_kwargs: dict[str, Any] = self._build_browser_kwargs()
                 try:
                     sig = inspect.signature(browser_factory)
                     has_var = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
@@ -733,10 +763,10 @@ class Crawl4AIProvider(AcquisitionProvider):
         if self.crawler_factory is None and not self._start_attempted and self._uses_default_url_validator:
             if not await self.start():
                 reason = "crawl4ai_not_installed" if isinstance(self._start_error, ImportError) else "crawl4ai_runtime_unavailable"
-                return await self._fallback_fetch(url, capture_screenshot=capture_screenshot, reason=reason)
+                return await self._unavailable(url, capture_screenshot=capture_screenshot, reason=reason)
         if self._start_attempted and not self._started:
             reason = "crawl4ai_not_installed" if isinstance(self._start_error, ImportError) else "crawl4ai_runtime_unavailable"
-            return await self._fallback_fetch(url, capture_screenshot=capture_screenshot, reason=reason)
+            return await self._unavailable(url, capture_screenshot=capture_screenshot, reason=reason)
 
         try:
             await self.url_validator(url)
@@ -760,7 +790,7 @@ class Crawl4AIProvider(AcquisitionProvider):
 
         if not await self.start():
             reason = "crawl4ai_not_installed" if isinstance(self._start_error, ImportError) else "crawl4ai_runtime_unavailable"
-            return await self._fallback_fetch(url, capture_screenshot=capture_screenshot, reason=reason)
+            return await self._unavailable(url, capture_screenshot=capture_screenshot, reason=reason)
 
         try:
             if self._crawler is None or self._resolved_run_config_factory is None:
@@ -771,7 +801,11 @@ class Crawl4AIProvider(AcquisitionProvider):
                 "screenshot": capture_screenshot,
                 "capture_mhtml": self.capture_mhtml,
                 "magic": True,
-                "remove_overlay_elements": True,
+                # 2026-08-31 根因分析：crawl4ai 的 remove_overlay_elements.js 使用子串选择器
+                # [class*="overlay" i]，会命中 Squarespace 等 CMS 挂在 <body> 上的主题配置类
+                # （如 isscr.org 的 tweak-portfolio-grid-overlay-*），连带 elem.remove() 删除
+                # 整个 <body>，产出仅剩 <title> 的 head 空壳。遮罩清理对正文提取非必需，故关闭。
+                "remove_overlay_elements": False,
                 "remove_consent_popups": True,
                 "delay_before_return_html": 1.5,
                 "scan_full_page": True,
@@ -803,7 +837,7 @@ class Crawl4AIProvider(AcquisitionProvider):
                     error_code=ErrorCode.PROVIDER_ERROR,
                     error_message=getattr(crawl_result, "error_message", None) or "Crawl4AI failed",
                     retryable=True,
-                    provider_meta={"adapter": "crawl4ai"},
+                    provider_meta={"adapter": self.adapter_name},
                 )
 
             html_bytes = (getattr(crawl_result, "html", "") or "").encode("utf-8")
@@ -819,7 +853,7 @@ class Crawl4AIProvider(AcquisitionProvider):
                     error_message=err_desc,
                     retryable=False,
                     validation_status=ValidationStatus.INVALID,
-                    provider_meta={"adapter": "crawl4ai", "quality_failure": err_tag},
+                    provider_meta={"adapter": self.adapter_name, "quality_failure": err_tag},
                 )
 
             payloads = [
@@ -871,7 +905,7 @@ class Crawl4AIProvider(AcquisitionProvider):
                 response_headers=response_headers,
                 validation_status=ValidationStatus.VALID,
                 payloads=payloads,
-                provider_meta={"adapter": "crawl4ai"},
+                provider_meta={"adapter": self.adapter_name},
             )
         except Exception as exc:
             return ProviderFetchResult(
@@ -880,8 +914,130 @@ class Crawl4AIProvider(AcquisitionProvider):
                 error_code=ErrorCode.PROVIDER_ERROR,
                 error_message=str(exc),
                 retryable=True,
-                provider_meta={"adapter": "crawl4ai"},
+                provider_meta={"adapter": self.adapter_name},
             )
+
+
+LOOPBACK_CDP_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+def validate_cdp_url(cdp_url: str) -> str:
+    """A CDP endpoint receives a live authenticated session; loopback only."""
+    parts = urlsplit(cdp_url)
+    if parts.scheme not in {"http", "https"} or not parts.hostname:
+        raise ValueError("CDP endpoint must be an absolute http(s) URL")
+    if parts.hostname.lower() not in LOOPBACK_CDP_HOSTS:
+        raise ValueError("CDP endpoint must point at loopback; remote attach is refused")
+    if parts.username or parts.password:
+        raise ValueError("CDP endpoint must not embed credentials")
+    return cdp_url
+
+
+class LoginBrowserProvider(Crawl4AIProvider):
+    """Attach to a user-launched browser over CDP to fetch logged-in pages.
+
+    Used as an *upgrade* path when the anonymous capture is detected as
+    login-truncated (see :mod:`clipdeck.acquisition.truncation`).  Design
+    constraints:
+
+    * loopback-only endpoint (policy in :func:`validate_cdp_url`);
+    * never kills or reconfigures the user's browser (``cdp_cleanup_on_close``
+      is False and no stealth/UA overrides are applied);
+    * no anonymous HTTP fallback — a failed attach must surface as a failed
+      upgrade so the truncated anonymous asset stays the honest record;
+    * a debug port may appear after startup (the user restarts Chrome with
+      ``--remote-debugging-port``), so a failed start is retried on demand.
+    """
+
+    adapter_name = "login_browser"
+    allow_http_fallback = False
+
+    def __init__(self, *, cdp_url: str = "http://127.0.0.1:9222", **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.cdp_url = validate_cdp_url(cdp_url)
+
+    def _build_browser_kwargs(self) -> dict[str, Any]:
+        return {
+            "cdp_url": self.cdp_url,
+            "java_script_enabled": True,
+            "accept_downloads": False,
+            "ignore_https_errors": False,
+            "verbose": False,
+            "cdp_cleanup_on_close": False,
+        }
+
+    def _reset_transient_start_failure(self) -> None:
+        if (
+            self._start_attempted
+            and not self._started
+            and not isinstance(self._start_error, ImportError)
+        ):
+            # The user's debug browser may simply not exist yet; allow a retry.
+            self._start_attempted = False
+            self._start_error = None
+
+    async def start(self) -> bool:
+        self._reset_transient_start_failure()
+        return await super().start()
+
+    async def fetch(self, url: str, *, capture_screenshot: bool = False) -> ProviderFetchResult:
+        # Reset before Crawl4AIProvider.fetch()'s short-circuit guard so a
+        # browser that appears later (Chrome restarted with a debug port) is
+        # picked up without restarting Clipdeck.
+        self._reset_transient_start_failure()
+        result = await super().fetch(url, capture_screenshot=capture_screenshot)
+        if not result.success:
+            # If the user's browser disconnected or crashed, tear down the dead crawler
+            # so the next fetch will re-attach cleanly instead of hanging on stale state.
+            await self.close()
+        return result
+
+
+
+DEFAULT_SPIDER_USER_AGENT = (
+    "Mozilla/5.0 (compatible; Baiduspider/2.0; +http://www.baidu.com/search/spider.html)"
+)
+
+
+class SpiderBypassProvider(DirectDownloadProvider):
+    """Fetch web pages using a search-engine spider identity (e.g. Baiduspider).
+
+    Many sites (e.g. Zhihu, Medium, paywalled news) answer search engine spiders
+    with full SSR HTML to guarantee indexing, bypassing client login gates.
+    """
+
+    adapter_name = "spider_bypass"
+
+    def __init__(
+        self,
+        *,
+        user_agent: str = DEFAULT_SPIDER_USER_AGENT,
+        url_validator: Callable[[str], Awaitable[None]] = validate_public_http_url,
+        timeout_seconds: float = 15.0,
+        max_bytes: int = 20 * 1024 * 1024,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        headers = {
+            "User-Agent": user_agent,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        }
+        super().__init__(
+            max_bytes=max_bytes,
+            timeout_seconds=timeout_seconds,
+            transport=transport,
+            url_validator=url_validator,
+            default_headers=headers,
+        )
+
+    async def fetch(self, url: str, *, capture_screenshot: bool = False) -> ProviderFetchResult:
+        result = await super().fetch(url, capture_screenshot=capture_screenshot)
+        if result.success and result.payloads:
+            for p in result.payloads:
+                if p.is_primary:
+                    p.role = BlobRole.RENDERED_HTML
+            result.provider_meta["adapter"] = self.adapter_name
+        return result
 
 
 class ProviderResolver:

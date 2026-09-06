@@ -1,5 +1,5 @@
 {
-  "_comment": "Clipdeck 站点/行为配置。此文件可选：缺失时使用代码内默认值。platform_domains: 域名->平台显示名；identifier_extractors: 学术标识符提取开关（DOI/PMID/PMCID/NCT/ChiCTR/ORCID）；llm_extract_prompt_path / image_ocr_prompt_path: 自定义 prompt 模板文件路径，模板中用 {content} 占位。",
+  "_comment": "Clipdeck 站点/行为配置。此文件可选：缺失时使用代码内默认值。platform_domains: 域名->平台显示名；identifier_extractors: 学术标识符提取开关（DOI/PMID/PMCID/NCT/ChiCTR/ORCID）；llm_extract_prompt_path / image_ocr_prompt_path: 自定义 prompt 模板文件路径，模板中用 {content} 占位；truncation_markers: 域名->截断特征串，匿名抓取命中即触发登录浏览器升级。",
   "platform_domains": {
     "mp.weixin.qq.com": "微信公众号",
     "news.sciencenet.cn": "科学网",
@@ -13,7 +13,9 @@
     "jrj.sh.gov.cn": "上海市委金融办",
     "www.eurekalert.org": "EurekAlert! 科学新闻",
     "pmc.ncbi.nlm.nih.gov": "PubMed Central (NIH)",
-    "www.jfdaily.com": "上观新闻"
+    "www.jfdaily.com": "上观新闻",
+    "www.tgb.cn": "淘股吧",
+    "www.zhihu.com": "知乎"
   },
   "identifier_extractors": {
     "DOI": true,
@@ -22,6 +24,11 @@
     "NCT": true,
     "ChiCTR": true,
     "ORCID": true
+  },
+  "truncation_markers": {
+    "zhihu.com": ["\"contentNeedTruncated\":true", "\"contentNeedTruncated\": true", "ContentItem-expandButton"],
+    "www.zhihu.com": ["\"contentNeedTruncated\":true", "\"contentNeedTruncated\": true", "ContentItem-expandButton"],
+    "zhuanlan.zhihu.com": ["\"contentNeedTruncated\":true", "\"contentNeedTruncated\": true"]
   },
   "llm_extract_prompt_path": null,
   "image_ocr_prompt_path": null

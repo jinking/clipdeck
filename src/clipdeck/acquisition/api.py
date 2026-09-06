@@ -223,7 +223,7 @@ async def get_blob(blob_id: str, request: Request):
 @router.get("/dashboard/summary")
 async def dashboard_summary(request: Request):
     summary = await service(request).repository.summary()
-    summary["providers"] = ["crawl4ai", "wechat_article", "direct_download", "local_input"]
+    summary["providers"] = ["crawl4ai", "wechat_article", "direct_download", "local_input", "login_browser", "spider_bypass"]
     summary["future_ingestion_contracts"] = ["html_ingestion", "document_text_extraction", "media_transcription", "text_normalization"]
     return summary
 

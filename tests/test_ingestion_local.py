@@ -34,6 +34,11 @@ from clipdeck.ingestion.domain.models import IngestionOptions
 from clipdeck.ingestion.repository import SQLiteIngestionRepository
 from clipdeck.ingestion.queue import SingleIngestionWorker
 
+# 质量门禁 CONTENT_TOO_SHORT 兜底：可见正文 <300 字符的空壳捕获会被拒绝。
+# HTML 夹具需携带拟真长度正文，避免误触发门禁。
+GATE_FILLER = "拟真长度正文填充段，用于通过采集质量门禁的三百字符下限校验。"
+GATE_FILLER_EN = "Realistic-length fixture paragraph for quality gate coverage. "
+
 
 @dataclass
 class LocalIngestionContext:
@@ -192,7 +197,9 @@ async def test_text_raw_asset_becomes_local_evidence_without_semantic_rewrite(lo
 
 @pytest.mark.asyncio
 async def test_web_and_wechat_raw_html_are_converted_from_local_blob_only(local_ingestion) -> None:
-    html = "<html><body><article><h1>本地网页标题</h1><p>网页正文。</p></article></body></html>"
+    html = (
+        "<html><body><article><h1>本地网页标题</h1><p>网页正文。" + GATE_FILLER * 12 + "</p></article></body></html>"
+    )
     asset = await _persist_raw_asset(
         local_ingestion,
         resource_type=ResourceType.WEB_PAGE,
@@ -216,7 +223,7 @@ async def test_web_and_wechat_raw_html_are_converted_from_local_blob_only(local_
         resource_type=ResourceType.WECHAT_ARTICLE,
         body=(
             '<div id="js_article"><div id="js_content">'
-            "<h2>微信文章</h2><p>微信正文。</p>"
+            "<h2>微信文章</h2><p>微信正文。" + GATE_FILLER * 12 + "</p>"
             '<img data-src="https://mmbiz.qpic.cn/example.png">'
             "</div></div>"
         ).encode("utf-8"),
@@ -251,7 +258,11 @@ async def test_local_llm_egress_follows_ingestion_options(local_ingestion) -> No
 
     extractor = RecordingExtractor()
     local_ingestion.service.llm_extractor = extractor
-    html = b"<html><body><article><h1>Local title</h1><p>Local body content for extraction.</p></article></body></html>"
+    html = (
+        b"<html><body><article><h1>Local title</h1><p>Local body content for extraction. "
+        + (GATE_FILLER_EN * 8).encode("utf-8")
+        + b"</p></article></body></html>"
+    )
 
     default_asset = await _persist_raw_asset(
         local_ingestion, resource_type=ResourceType.WEB_PAGE, body=html,
@@ -296,7 +307,11 @@ async def test_same_web_asset_local_and_llm_variants_are_distinct_in_both_orders
             return True, "# LLM VARIANT\n\n" + ("external content " * 5)
 
     local_ingestion.service.llm_extractor = VariantExtractor()
-    html = b"<article><h1>LOCAL VARIANT</h1><p>local source body with enough text for conversion</p></article>"
+    html = (
+        b"<article><h1>LOCAL VARIANT</h1><p>local source body with enough text for conversion. "
+        + (GATE_FILLER_EN * 8).encode("utf-8")
+        + b"</p></article>"
+    )
 
     local_first_asset = await _persist_raw_asset(
         local_ingestion, resource_type=ResourceType.WEB_PAGE, body=html,
@@ -347,7 +362,11 @@ async def test_authorized_llm_failure_records_local_fallback_metadata(local_inge
     local_ingestion.service.llm_extractor = FailingExtractor()
     asset = await _persist_raw_asset(
         local_ingestion, resource_type=ResourceType.WEB_PAGE,
-        body=b"<article><h1>Fallback title</h1><p>Fallback local body text is retained.</p></article>",
+        body=(
+            b"<article><h1>Fallback title</h1><p>Fallback local body text is retained. "
+            + (GATE_FILLER_EN * 8).encode("utf-8")
+            + b"</p></article>"
+        ),
         mime_type="text/html", role=BlobRole.RENDERED_HTML,
         requested_url="https://example.org/fallback",
     )

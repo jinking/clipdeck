@@ -17,6 +17,9 @@ application always starts.  Supported keys:
                              prompt template containing ``{content}``
     image_ocr_prompt_path    optional path to a custom image OCR prompt
                              template containing ``{content}``
+    truncation_markers       domain -> substrings proving an anonymous fetch
+                             was login-truncated (triggers the logged-in
+                             browser upgrade in the acquisition layer)
 """
 
 from __future__ import annotations
@@ -59,6 +62,7 @@ _KNOWN_KEYS = {
     "identifier_extractors",
     "llm_extract_prompt_path",
     "image_ocr_prompt_path",
+    "truncation_markers",
 }
 
 
@@ -71,6 +75,7 @@ def load_profiles() -> dict:
         "identifier_extractors": dict(DEFAULT_IDENTIFIER_EXTRACTORS),
         "llm_extract_prompt_path": None,
         "image_ocr_prompt_path": None,
+        "truncation_markers": {},
     }
     if path is None:
         return profiles
@@ -96,6 +101,13 @@ def load_profiles() -> dict:
             str(k).upper(): bool(v) for k, v in extractors.items()
             if str(k).upper() in DEFAULT_IDENTIFIER_EXTRACTORS
         })
+    markers = raw.get("truncation_markers")
+    if isinstance(markers, dict):
+        profiles["truncation_markers"].update({
+            str(k).lower(): [str(m) for m in v if isinstance(m, str) and m]
+            for k, v in markers.items()
+            if isinstance(v, list) and v
+        })
     for key in ("llm_extract_prompt_path", "image_ocr_prompt_path"):
         value = raw.get(key)
         if isinstance(value, str) and value.strip():
@@ -119,6 +131,11 @@ def platform_name(domain: str | None) -> str | None:
 def enabled_identifier_types() -> set[str]:
     extractors = load_profiles()["identifier_extractors"]
     return {name for name, enabled in extractors.items() if enabled}
+
+
+def truncation_markers() -> dict[str, list[str]]:
+    """domain -> substrings that mark a truncated anonymous rendering."""
+    return load_profiles()["truncation_markers"]
 
 
 def prompt_template(kind: str) -> str | None:

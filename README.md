@@ -51,6 +51,27 @@ CLIPDECK_ALLOW_PROXY_FAKE_IP=true .venv/bin/clipdeck
 - **书签一键收藏**：把工作台里的「📌 存到 Clipdeck」拖到浏览器书签栏，在任意网页点击即经 `GET /api/v1/save?url=` 入队归档。
 - **站点适配配置化**：平台显示名、学术标识符开关、自定义 LLM/OCR 提示词模板，全部在 `config/site_profiles.json` 中配置，无需改代码。
 
+## 截断自动升级机制（可选）
+
+部分站点（如知乎）对匿名请求返回**合法但被截断**的正文：页面能渲染、内容非空，服务端却把剩余部分锁在登录态之后，普通质量校验无法识别。Clipdeck 采用「配置驱动的截断检测 + 分级升级重取」：
+
+1. 匿名抓取成功后，按 `config/site_profiles.json` 的 `truncation_markers`（域名→截断特征串，如知乎的 `"\"contentNeedTruncated\":true"`、`ContentItem-expandButton`）与内置通用短语判定是否被登录截断；
+2. 命中后先将匿名版本原样归档（保留 provenance 证据链，warning 记 `login_truncated:<marker>`）；
+3. **Tier 1 - 搜索引擎爬虫绕过**（默认开启 `CLIPDECK_SPIDER_BYPASS_ENABLED=true`）：使用百度蜘蛛 User-Agent 直接请求，许多平台对爬虫提供完整服务端渲染以保证 SEO 收录；若重取后不再截断，则归档为新版本（`provider_name=spider_bypass`）；
+4. **Tier 2 - 本地已登录浏览器 CDP 重取**（可选 `CLIPDECK_LOGIN_BROWSER_ENABLED=true`）：若 Tier 1 未配置、失败或依然被截断，通过 CDP 连接本地已登录目标站点的浏览器重取；成功则作为新版本（`provider_name=login_browser`）入库；
+5. 重取失败或依然被截断时，原匿名版本保持有效，并在任务 attempt 与 asset warning 中如实记录失败原因。
+
+启用 Tier 2 CDP 时，需自行以调试端口启动浏览器（端点仅允许 loopback 回环地址，绝不关闭或改写你的浏览器会话）：
+
+```bash
+# 用独立 profile 启动一个已登录目标站点的 Chrome（首次需在该窗口登录一次）
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  --remote-debugging-port=9222 --user-data-dir=/tmp/clipdeck-login-profile
+# 在 .env 中：
+#   CLIPDECK_LOGIN_BROWSER_ENABLED=true
+#   CLIPDECK_CDP_URL=http://127.0.0.1:9222
+```
+
 ## MinerU 配置
 
 真实 Token 只能写入本地 `.env` 或启动进程环境，不能写入 Git、SQLite、日志或技术文档：

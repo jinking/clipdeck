@@ -36,6 +36,8 @@ class ProviderName(StrEnum):
     WECHAT_ARTICLE = "wechat_article"
     DIRECT_DOWNLOAD = "direct_download"
     LOCAL_INPUT = "local_input"
+    LOGIN_BROWSER = "login_browser"
+    SPIDER_BYPASS = "spider_bypass"
 
 
 class TaskStatus(StrEnum):

@@ -65,7 +65,7 @@ class ArticleMetadata:
     author: str | None = None
 
 
-def parse_iso_or_ts(val: str | int | float | None) -> str | None:
+def parse_iso_or_ts(val: str | int | float | None, tz_offset_hours: int = 8) -> str | None:
     """Parse various datetime representations into ISO-8601 string."""
     if not val:
         return None
@@ -75,7 +75,20 @@ def parse_iso_or_ts(val: str | int | float | None) -> str | None:
         if ts > 100000000000:
             ts = ts / 1000.0
         try:
-            return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            from datetime import timedelta, timezone
+            tz = timezone(timedelta(hours=tz_offset_hours))
+            return datetime.fromtimestamp(ts, tz=tz).strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            pass
+
+    # 0. ISO 8601 with timezone like 2026-02-27T08:54:29.000Z
+    if "T" in val_str and (val_str.endswith("Z") or "+" in val_str or "-" in val_str[10:]):
+        try:
+            from datetime import timedelta, timezone
+            iso_clean = val_str.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(iso_clean)
+            tz = timezone(timedelta(hours=tz_offset_hours))
+            return dt.astimezone(tz).strftime("%Y-%m-%d %H:%M:%S")
         except Exception:
             pass
 
@@ -83,6 +96,8 @@ def parse_iso_or_ts(val: str | int | float | None) -> str | None:
     m_iso = re.search(r"(20\d{2})[-/](0?[1-9]|1[0-2])[-/](0?[1-9]|[12]\d|3[01])[T\s](\d{1,2}:\d{2}(?::\d{2})?)", val_str)
     if m_iso:
         y, mon, d, t = m_iso.groups()
+        if len(t) == 5:
+            t = f"{t}:00"
         return f"{y}-{int(mon):02d}-{int(d):02d} {t}"
 
     # 2. Chinese formatted date like 2026年07月15日 13:51
@@ -90,6 +105,8 @@ def parse_iso_or_ts(val: str | int | float | None) -> str | None:
     if m:
         y, mon, d, t = m.groups()
         time_part = f" {t}" if t else " 00:00:00"
+        if t and len(t) == 5:
+            time_part = f" {t}:00"
         return f"{y}-{int(mon):02d}-{int(d):02d}{time_part}"
 
     return None
@@ -113,7 +130,7 @@ def extract_article_metadata(
     soup = None
     if html:
         from bs4 import BeautifulSoup
-        soup = BeautifulSoup(html[:100000], "html.parser")
+        soup = BeautifulSoup(html, "html.parser")
 
     # --- 1. 标题提取 ---
     if soup:
@@ -165,9 +182,18 @@ def extract_article_metadata(
                     break
 
     if not meta.published_at and html and url and "mp.weixin.qq.com" in url:
-        m_ct = re.search(r"var\s+(?:createTime|ct|publish_time)\s*=\s*[\'\"]?(\d{10,13})[\'\"]?", html)
-        if m_ct:
-            meta.published_at = parse_iso_or_ts(m_ct.group(1))
+        m_ts = re.search(r"(?:var\s+createTimestamp|createTimestamp|ori_create_time|var\s+ct)\s*[:=]\s*[\'\"]?(\d{10})[\'\"]?", html)
+        if m_ts:
+            meta.published_at = parse_iso_or_ts(m_ts.group(1), tz_offset_hours=8)
+        if not meta.published_at:
+            m_str = re.search(r"(?:var\s+createTime|createTime)\s*=\s*[\'\"]([0-9]{4}-[0-9]{2}-[0-9]{2}\s+[0-9]{2}:[0-9]{2}(?::[0-9]{2})?)[\'\"]", html)
+            if m_str:
+                meta.published_at = parse_iso_or_ts(m_str.group(1))
+
+    if not meta.published_at and url and "zhihu.com" in url and soup:
+        zh_times = soup.select("[itemprop='dateCreated'], [itemprop='datePublished']")
+        if zh_times:
+            meta.published_at = parse_iso_or_ts(zh_times[-1].get("content"), tz_offset_hours=8)
 
     # 2.3 DOM 常见时间容器与通用时间标签匹配
     if not meta.published_at and soup:
@@ -222,14 +248,26 @@ def extract_article_metadata(
         meta.platform = domain
 
     # --- 4. 作者与来源机构提取 ---
-    if url and "mp.weixin.qq.com" in url and soup:
-        wc_nick = soup.select_one("#js_name, .profile_nickname, strong.account_nickname")
-        if wc_nick and wc_nick.get_text(strip=True):
-            meta.author = wc_nick.get_text(strip=True)
-        elif html:
-            m_nick = re.search(r"var\s+nickname\s*=\s*[\'\"]([^\'\"]+)[\'\"]", html)
+    if url and "mp.weixin.qq.com" in url:
+        if soup:
+            wc_nick = soup.select_one("#js_name, #profileBt, .profile_nickname, strong.account_nickname")
+            if wc_nick and wc_nick.get_text(strip=True):
+                meta.author = wc_nick.get_text(strip=True)
+        if not meta.author and html:
+            m_nick = re.search(r"var\s+nickname\s*=\s*(?:htmlDecode\()?[\'\"]([^\'\"]+)[\'\"]", html)
             if m_nick:
-                meta.author = m_nick.group(1)
+                meta.author = m_nick.group(1).strip()
+            else:
+                m_nick2 = re.search(r"nickname\s*[:=]\s*(?:htmlDecode\()?[\'\"]([^\'\"]+)[\'\"]", html)
+                if m_nick2 and m_nick2.group(1).strip() not in {"未命名账号", ""}:
+                    meta.author = m_nick2.group(1).strip()
+
+    if not meta.author and url and "zhihu.com" in url and soup:
+        zh_author = soup.select_one(".AuthorInfo-name, [itemprop='author'] meta[itemprop='name']")
+        if zh_author:
+            name = zh_author.get("content") or zh_author.get_text()
+            if name and name.strip():
+                meta.author = name.strip()
 
     if not meta.author and soup:
         for meta_name in ["author", "article:author", "citation_author", "dc.creator", "byl"]:

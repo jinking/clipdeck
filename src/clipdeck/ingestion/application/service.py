@@ -26,7 +26,7 @@ from clipdeck.ingestion.domain.models import (
     IngestionOptions,
     IngestionStatus,
 )
-from clipdeck.ingestion.metadata import extract_article_metadata, extract_identifiers, extract_title
+from clipdeck.ingestion.metadata import ArticleMetadata, extract_article_metadata, extract_identifiers, extract_title
 from clipdeck.ingestion.pipeline_fingerprint import pipeline_fingerprint as build_fingerprint
 from clipdeck.ingestion.policy import ExternalProcessingDenied, ensure_external_processing_allowed
 from clipdeck.ingestion.providers.mineru.client import MinerUClient
@@ -45,6 +45,7 @@ class _LocalConversion:
     model: str | None
     requested_provider: str | None
     fallback_status: str
+    article_meta: ArticleMetadata | None = None
 
 
 class IngestionService:
@@ -397,6 +398,13 @@ class IngestionService:
         if not is_valid:
             raise ValueError(f"HTML 质量校验未通过 ({err_tag}): {err_desc}")
 
+        # 提前提取元数据，供后续 LLM/Local 转换及 Evidence 元数据构造使用
+        art_meta = extract_article_metadata(
+            html=text,
+            url=asset.requested_url or asset.final_url,
+            fallback_title=asset.provider_meta.get("display_name") or asset.provider_meta.get("title"),
+        )
+
         # 1. 优先尝试使用 MiniMax / LLM 提取纯净 Markdown 正文
         requested_provider = _llm_provider_name(self.llm_extractor) if self.llm_extractor else None
         requested_model = getattr(self.llm_extractor, "model", None) if self.llm_extractor else None
@@ -416,6 +424,7 @@ class IngestionService:
                         model=requested_model,
                         requested_provider=requested_provider,
                         fallback_status="not_needed",
+                        article_meta=art_meta,
                     )
                 fallback_status = "llm_failed"
             except ExternalProcessingDenied:
@@ -455,11 +464,6 @@ class IngestionService:
             if root is None:
                 root = soup.body or soup
 
-        art_meta = extract_article_metadata(
-            html=text,
-            url=asset.requested_url or asset.final_url,
-            fallback_title=asset.provider_meta.get("display_name") or asset.provider_meta.get("title"),
-        )
         title = art_meta.title
         md = _html_to_markdown(root).strip()
         if title and not md.startswith("# "):
@@ -492,6 +496,7 @@ class IngestionService:
             model=requested_model if fallback_status != "not_requested" else None,
             requested_provider=requested_provider if fallback_status != "not_requested" else None,
             fallback_status=fallback_status,
+            article_meta=art_meta,
         )
 
     async def _write_evidence(
@@ -508,11 +513,21 @@ class IngestionService:
             markdown.encode("utf-8"), mime_type="text/markdown; charset=utf-8", role=BlobRole.EVIDENCE_MARKDOWN,
         )
         identifiers = extract_identifiers(markdown)
-        art_meta = extract_article_metadata(
-            markdown=markdown,
-            url=asset.requested_url or asset.final_url,
-            fallback_title=asset.provider_meta.get("display_name") or asset.provider_meta.get("title"),
-        )
+        art_meta = (conversion.article_meta if (conversion and conversion.article_meta) else None)
+        if not art_meta:
+            html_text = None
+            if asset.resource_type in {ResourceType.WEB_PAGE, ResourceType.WECHAT_ARTICLE}:
+                try:
+                    raw_data = await self.blob_store.get(asset.primary_blob.blob_id)
+                    html_text = decode_html(raw_data, asset.primary_blob.mime_type)
+                except Exception:
+                    pass
+            art_meta = extract_article_metadata(
+                html=html_text,
+                markdown=markdown,
+                url=asset.requested_url or asset.final_url,
+                fallback_title=asset.provider_meta.get("display_name") or asset.provider_meta.get("title"),
+            )
         title = art_meta.title or asset.provider_meta.get("display_name") or asset.provider_meta.get("title")
         warnings: list[str] = []
         if len(markdown.strip()) < 200:

@@ -53,6 +53,10 @@ URL ─────────┐
 ### 3.2 媒体与平台边界（当前限制）
 对媒体 URL，V1 仅支持可直接下载的公开音视频直链（如 `.mp4`、`.mp3` 等直接文件链接）。YouTube、Bilibili、小宇宙、Apple Podcasts 等前台播放页面正文主要为动态切片视频流（DASH/HLS），需要针对特定平台编写逆向与解密逻辑，明确属于未来新增独立 `MediaPlatformProvider` 的范围，不能把平台逆向逻辑塞进通用 HTTP/Browser Provider 中。此类页面当前暂不支持直接解析提取媒体。
 
+### 3.3 Crawl4AI 与 LLM 职责边界
+- **Crawl4AI 的模型调用机制**：Crawl4AI 框架官方原生支持 `LLMExtractionStrategy` 和 `LLMContentFilter`（可对接 OpenAI、Claude、Gemini 或本地 Ollama）。但**本地 Crawl4AI 默认不调用任何 LLM**，只有显式为其挂载 `LLMExtractionStrategy` 或配置 `LLMConfig` 时才会触发模型调用。
+- **Clipdeck 中的集成边界**：在系统的分层架构中，Layer 2 的 Crawl4AIProvider 严格保持纯粹的**无头渲染器角色**（仅负责执行 JS 渲染、生成原始 DOM 快照与 fit_markdown），不挂载任何模型策略，确保零 Token 开销与绝对保真；所有文章正文的 LLM 提纯均后置在 Layer 3 Ingestion（由 `LLMArticleExtractor` 统一调度 MiniMax-M3 或回退本地启发式规则），实现“无损采存档案”与“AI 语义提纯”的严格解耦。
+
 ## 4. PDF、Word 与粘贴文字如何统一入库
 
 ### 4.1 文件上传

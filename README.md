@@ -42,6 +42,8 @@ CLIPDECK_ALLOW_PROXY_FAKE_IP=true .venv/bin/clipdeck
 
 没有安装 Crawl4AI 或本地浏览器运行时不可用时，普通网页会退化为原始 HTTP 归档，并在 RawAsset warnings 中明确记录；微信文章始终优先使用专项 Provider。
 
+> **关于 Crawl4AI 与大模型**：Crawl4AI 框架原生支持 `LLMExtractionStrategy` 等 AI 提取策略，但**本地 Crawl4AI 默认不调用任何 LLM**（零 Token 消耗）。在 Clipdeck 中，它仅作为纯粹的无头浏览器执行 DOM 渲染；只有在 Layer 3 入库提纯阶段显式开启外部模型授权时，系统才会调用 MiniMax-M3 对正文进行结构化提纯。
+
 ## 收藏方式与使用指南
 
 ### 1. 四种收藏入口

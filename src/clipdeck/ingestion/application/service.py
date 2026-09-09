@@ -431,6 +431,9 @@ class IngestionService:
             for el in soup.select(sel):
                 el.decompose()
 
+        from clipdeck.ingestion.llm.extractor import prune_high_link_density_elements
+        prune_high_link_density_elements(soup, density_threshold=0.5)
+
         if asset.resource_type is ResourceType.WECHAT_ARTICLE:
             root = soup.select_one("#js_content") or soup.select_one("#js_article") or soup
         else:

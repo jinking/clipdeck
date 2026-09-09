@@ -280,3 +280,62 @@ async def test_acquisition_service_concurrency_semaphore(tmp_path: Path) -> None
     assert asset2 is not None
     await repo.close()
 
+
+def test_link_density_pruning_and_content_targeting() -> None:
+    from bs4 import BeautifulSoup
+    from clipdeck.ingestion.llm.extractor import (
+        prune_high_link_density_elements,
+        find_candidate_main_content,
+        prepare_focused_article_text,
+    )
+
+    html = """
+    <html>
+      <head><title>测试文章 - 科技频道</title></head>
+      <body>
+        <div class="header-nav">
+          <a href="/home">首页</a> | <a href="/news">新闻</a> | <a href="/about">关于我们</a>
+        </div>
+        <div class="sidebar-links">
+          <h3>热门排行</h3>
+          <ul>
+            <li><a href="/item1">热门推荐文章一超链接</a></li>
+            <li><a href="/item2">热门推荐文章二超链接</a></li>
+            <li><a href="/item3">热门推荐文章三超链接</a></li>
+          </ul>
+        </div>
+        <div class="main-body" id="article_wrapper">
+          <h1>深度解读脑机接口最新进展</h1>
+          <p>这是正文的第一段落，介绍了脑机接口系统的整体设计与架构理念，包含大量客观事实描述。</p>
+          <p>这是正文的第二段落，进一步阐述了信号采集、无损保存与后端解析的各个核心步骤。</p>
+          <p>这是正文的第三段落，展示了经过实验验证的各项关键性能指标与实验成果总结。</p>
+        </div>
+        <div class="footer-links">
+          <a href="/privacy">隐私政策</a> | <a href="/terms">服务条款</a> | <a href="/copyright">版权声明</a>
+        </div>
+      </body>
+    </html>
+    """
+
+    # 1. 验证方案一：链接密度过滤
+    soup = BeautifulSoup(html, "html.parser")
+    prune_high_link_density_elements(soup, density_threshold=0.5)
+    # 热门排行列表和导航链接应该被剔除
+    assert "热门推荐文章一超链接" not in soup.get_text()
+    assert "首页" not in soup.get_text()
+    # 核心正文依然完好无损
+    assert "深度解读脑机接口最新进展" in soup.get_text()
+
+    # 2. 验证方案二：正文候选区聚焦
+    target = find_candidate_main_content(soup)
+    assert target is not None
+    assert target.get("id") == "article_wrapper" or "article" in target.get("class", [])
+
+    # 3. 验证完整预处理管线
+    focused = prepare_focused_article_text(html)
+    assert "深度解读脑机接口最新进展" in focused
+    assert "这是正文的第一段落" in focused
+    assert "热门推荐文章" not in focused
+    assert "隐私政策" not in focused
+
+

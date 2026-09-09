@@ -21,15 +21,17 @@ class LLMArticleExtractor:
         *,
         api_key: str,
         base_url: str = "https://api.minimaxi.com/v1",
-        model: str = "MiniMax-Text-01",
+        model: str = "MiniMax-M3",
         timeout_seconds: float = 45.0,
         transport: httpx.AsyncBaseTransport | None = None,
+        thinking_mode: str | None = "disabled",
     ) -> None:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout_seconds = timeout_seconds
         self.transport = transport
+        self.thinking_mode = thinking_mode
 
     DEFAULT_PROMPT_TEMPLATE = """你是一个专业的网页正文提取引擎。
 请从以下网页文本中提取完整的核心文章正文（新闻、博客、报告、论文报道等任何类型的公开网页内容），并输出为纯净、格式规整的标准 Markdown。
@@ -84,11 +86,13 @@ class LLMArticleExtractor:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-        payload = {
+        payload: dict[str, Any] = {
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.1,
         }
+        if self.thinking_mode:
+            payload["thinking"] = {"type": self.thinking_mode}
 
         try:
             async with httpx.AsyncClient(

@@ -100,7 +100,8 @@ def create_app(data_root: str | Path | None = None, *, mineru_token: str | None 
         llm_extractor = LLMArticleExtractor(
             api_key=llm_api_key,
             base_url=_https_api_base_url(os.getenv("LLM_BASE_URL", "https://api.minimaxi.com/v1")),
-            model=os.getenv("LLM_MODEL", "MiniMax-Text-01"),
+            model=os.getenv("LLM_MODEL", "MiniMax-M3"),
+            thinking_mode=os.getenv("LLM_THINKING_MODE", "disabled"),
         )
 
     image_ocr_extractor = None
@@ -109,7 +110,7 @@ def create_app(data_root: str | Path | None = None, *, mineru_token: str | None 
         image_ocr_extractor = ImageOCRExtractor(
             api_key=llm_api_key,
             base_url=_https_api_base_url(os.getenv("LLM_BASE_URL", "https://api.minimaxi.com/v1")),
-            model=os.getenv("LLM_MODEL", "MiniMax-Text-01"),
+            model=os.getenv("LLM_OCR_MODEL", os.getenv("LLM_MODEL", "MiniMax-Text-01")),
         )
 
     ingestion_service = IngestionService(

@@ -38,6 +38,8 @@ async def test_llm_requires_explicit_key_and_external_processing_opt_in(monkeypa
         assert extractor is not None
         assert extractor.api_key == "explicit-llm-key"
         assert extractor.base_url == "https://llm.example/v1"
+        assert extractor.model == "MiniMax-M3"
+        assert extractor.thinking_mode == "disabled"
 
 
 def test_llm_base_url_rejects_insecure_or_credentialed_origins(monkeypatch, tmp_path) -> None:

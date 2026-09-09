@@ -42,6 +42,44 @@ CLIPDECK_ALLOW_PROXY_FAKE_IP=true .venv/bin/clipdeck
 
 没有安装 Crawl4AI 或本地浏览器运行时不可用时，普通网页会退化为原始 HTTP 归档，并在 RawAsset warnings 中明确记录；微信文章始终优先使用专项 Provider。
 
+## 收藏方式与使用指南
+
+### 1. 四种收藏入口
+- **浏览器书签一键存（Bookmarklet）**：访问 Web 控制台，将顶部的「📌 存到 Clipdeck」直接拖拽到浏览器书签栏。后续在任何网页浏览时点击书签，即刻通过 `GET /api/v1/save?url=` 触发后台静默归档。
+- **Web 控制台直接提交**：在控制台首页输入单个 URL，可按需勾选是否截取当前网页的视觉全景快照（Screenshot）。
+- **多链接批量导入**：在「批量导入」面板中一次性粘贴多行 URL（支持换行分隔），系统自动去重并批量加入异步抓取队列。
+- **REST API 调用**：支持第三方脚本或自动化工作流通过 `POST /api/v1/acquisitions` 提交抓取任务。
+
+### 2. 能够识别与摄入的链接类型
+- **微信公众号文章（`mp.weixin.qq.com`）**：
+  - 内置专用 Provider，自动捕获文章正文、排版与原始元数据。
+  - 自动发现所有懒加载图片（`data-src`）并并发下载落盘，本地化完整留存。
+  - 严格校验文章有效性，精准识别“内容已被发布者删除”、“访问过于频繁/环境异常”等状态。
+- **通用新闻、博客与门户网页**：
+  - 基于 Playwright / Crawl4AI 动态无头浏览器渲染，支持现代 SPA 单页应用与客户端 JavaScript 渲染。
+  - 编码智能识别（通过 `charset-normalizer` 自动适配 GBK / GB2312 / UTF-8），杜绝国内政企及老牌学术站点乱码。
+  - 防骨架屏机制：内置识别 Vue/Nuxt 骨架屏占位（如 `Loading...`）、未渲染模板标签（如 `{{title}}`、`NaN-NaN-NaN`），拒绝将空壳网页误标为成功。
+- **知乎等登录截断站点**：
+  - 具备分级自动穿透机制：先尝试伪装搜索引擎爬虫（Baiduspider）获取免登录 SSR 全文；若仍受限，可无缝挂载本地已登录的 Chrome（CDP 调试端口）读取真实内容。
+- **学术与科研资讯**：
+  - 支持从 PubMed Central (NIH)、科学网、EurekAlert 等学术资讯中自动提取学术标识符（DOI, PMID, PMCID, NCT, ChiCTR, ORCID 等）。
+- **文档与媒体公开直链**：
+  - **PDF 直链**（以 `.pdf` 结尾）：直接流式下载存证，后续可一键交由 MinerU 提取排版、公式与表格。
+  - **Word 直链**（`.doc`, `.docx`, `.odt` 结尾）：直接流式下载入库。
+  - **音视频直链**（`.mp4`, `.mov`, `.mp3`, `.m4a` 等）：直接流式下载原文件。
+
+## 适用边界与限制（当前做不到什么）
+
+1. **复杂流媒体平台的前台播放页（不支持非直链视频/播客）**
+   - **不支持**：Bilibili 播放页（`bilibili.com/video/BV...`）、YouTube 播放页、抖音、小宇宙/Apple Podcasts 播放页。
+   - **原因**：这类平台正文主体是动态流媒体切片（DASH/HLS/私有协议），非通用网页文本，需要定制平台解析器逆向解密音视频流。当前版本定位为通用文件与文档归档，仅支持指向音视频文件的**公开直接下载链接**（如以 `.mp4`/`.mp3` 结尾的直链）。
+2. **强风控人机验证与深层付费墙**
+   - **不支持**：Cloudflare Turnstile 5秒盾、极验滑动验证码、短信/扫码二次确认、付费会员墙。
+   - **设计准则**：系统定位为合规证据保存，不内置黑产级逆向破盾。遇到此类拦截会判定为 `BLOCKED`，保留现场响应作为 debug blob，并如实记录错误，不污染证据库。
+3. **内网及本地私有地址拦截（SSRF 防御）**
+   - **默认禁止**：`localhost`、`127.0.0.1`、`10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`、链路本地及保留地址。
+   - 若本地运行了 Clash/Surge 的 Fake-IP 模式，需显式启动环境变量 `CLIPDECK_ALLOW_PROXY_FAKE_IP=true` 豁免 `198.18.0.0/15` 网段。
+
 ## 通用能力
 
 - **编码自动检测**：抓取与入库均通过 `charset-normalizer` 识别 GBK/GB2312/UTF-8 等编码，中文老站点不再乱码。
@@ -50,6 +88,7 @@ CLIPDECK_ALLOW_PROXY_FAKE_IP=true .venv/bin/clipdeck
 - **批量导入**：`POST /api/v1/acquisitions/batch` 一次提交多个 URL，自动去重与拒绝非法项。
 - **书签一键收藏**：把工作台里的「📌 存到 Clipdeck」拖到浏览器书签栏，在任意网页点击即经 `GET /api/v1/save?url=` 入队归档。
 - **站点适配配置化**：平台显示名、学术标识符开关、自定义 LLM/OCR 提示词模板，全部在 `config/site_profiles.json` 中配置，无需改代码。
+
 
 ## 截断自动升级机制（可选）
 
@@ -137,4 +176,4 @@ Layer 3 使用 SQLite 持久化状态和一个进程内单 Worker 串行执行�
 .venv/bin/pytest --cov=clipdeck.acquisition --cov=clipdeck.ingestion --cov-report=term-missing
 ```
 
-系统设计详见 [docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md) 与 [Layer 3 + MinerU 技术规格](docs/06-SCI-Radar-Layer3-Ingestion-MinerU整合技术设计与开发规格-V1.1.md)。
+系统架构设计详见 [docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md)。

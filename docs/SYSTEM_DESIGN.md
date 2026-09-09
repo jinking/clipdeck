@@ -10,7 +10,7 @@ Clipdeck 是一个通用网页与文档保存/归档应用（由早期领域专�
 - PDF/Word 的文字、表格、图片和 OCR 提取
 - 视频/播客的音轨抽取、语音识别、说话人分离与时间戳
 - 文本清理、标准化、分段和去重
-- 实体、Claim、SCI 相关性与证据判断
+- 实体、Claim、业务相关性与证据判断
 
 这样做让任何解析或转写算法升级都能直接重跑已经保存的原始内容，不必重新访问来源。
 
@@ -44,7 +44,14 @@ URL ─────────┐
 | 视频 URL/上传 | `video` | DirectDownload/LocalInput | 原始视频文件 | `media_transcription` |
 | 播客 URL/上传 | `podcast` | DirectDownload/LocalInput | 原始音频文件 | `media_transcription` |
 
-对媒体 URL，V1 仅支持可直接下载的公开音视频直链。YouTube、Bilibili、小宇宙、Apple Podcasts 等平台页面未来应新增独立 Provider，不能把平台解析逻辑塞进通用 HTTP Provider。
+### 3.1 收藏与摄入入口
+- **浏览器书签（Bookmarklet）**：`GET /api/v1/save?url=` 快速入队后重定向回工作台。
+- **Web 控制台**：支持单 URL 提交（可选全景截图）、本地文件拖拽、长文本直接粘贴。
+- **批量导入**：`POST /api/v1/acquisitions/batch` 多行 URL 自动去重并入队。
+- **系统 API**：提供标准 RESTful JSON 接口供外部系统调用。
+
+### 3.2 媒体与平台边界（当前限制）
+对媒体 URL，V1 仅支持可直接下载的公开音视频直链（如 `.mp4`、`.mp3` 等直接文件链接）。YouTube、Bilibili、小宇宙、Apple Podcasts 等前台播放页面正文主要为动态切片视频流（DASH/HLS），需要针对特定平台编写逆向与解密逻辑，明确属于未来新增独立 `MediaPlatformProvider` 的范围，不能把平台逆向逻辑塞进通用 HTTP/Browser Provider 中。此类页面当前暂不支持直接解析提取媒体。
 
 ## 4. PDF、Word 与粘贴文字如何统一入库
 
@@ -102,10 +109,10 @@ BlobStore 使用 SHA-256 内容寻址：`data/blobs/sha256/ab/cd/<hash>.blob`。
 ## 7. 安全与资源控制
 
 - URL 只允许 HTTP(S)，拒绝内嵌账号密码。
-- 发起请求前解析 DNS，拒绝 loopback、内网、链路本地和保留地址。
+- 发起请求前解析 DNS，拒绝 loopback、内网、链路本地和保留地址（针对 Clash/Surge Fake-IP 网段需显式声明豁免）。
 - 每次重定向重新执行 SSRF 校验，最多 6 跳。
-- 流式下载并限制响应大小；上传大小由 `SCI_MAX_UPLOAD_BYTES` 控制。
-- 不绕过登录、验证码、付费墙或访问控制。
+- 流式下载并限制响应大小；上传大小由 `CLIPDECK_MAX_UPLOAD_BYTES` 控制。
+- **不绕过人机验证码与硬付费墙**：遇到 Cloudflare Turnstile 5秒盾、滑动验证、短信验证码或付费封闭内容时，系统主动识别并记录为 `BLOCKED`，不内置黑产级逆向破解；对于合法但被登录截断的公开页面（如知乎），仅通过合规的搜索引擎 Spider 模拟或用户授权的本地已登录浏览器 CDP 调试端点进行升级重取。
 - Blob 下载 API 当前定位为本地管理用途，生产部署必须加认证与授权。
 
 ## 8. 失败与版本语义

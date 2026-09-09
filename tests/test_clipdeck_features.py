@@ -225,6 +225,41 @@ def test_custom_llm_prompt_with_json_curlies_does_not_crash(tmp_path: Path, monk
 
 
 @pytest.mark.asyncio
+async def test_llm_extractor_default_model_and_non_thinking_payload() -> None:
+    import json
+    import httpx
+    from clipdeck.ingestion.llm.extractor import LLMArticleExtractor
+
+    captured_request = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_request["payload"] = json.loads(request.content.decode("utf-8"))
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": "# 文章标题\n\n这是经过提取后的完整正文内容，这里包含了足够多的详细信息与事实描述，确保提取结果文本的长度能够稳稳超过五十个字符的系统校验阈值。",
+                        }
+                    }
+                ]
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    extractor = LLMArticleExtractor(api_key="sk-test", transport=transport)
+    assert extractor.model == "MiniMax-M3"
+    assert extractor.thinking_mode == "disabled"
+
+    success, text = await extractor.extract("<html><body><p>" + "这是较长文章正文段落。" * 10 + "</p></body></html>")
+    assert success is True
+    assert "文章标题" in text
+    assert captured_request["payload"]["model"] == "MiniMax-M3"
+    assert captured_request["payload"]["thinking"] == {"type": "disabled"}
+
+
+@pytest.mark.asyncio
 async def test_acquisition_service_concurrency_semaphore(tmp_path: Path) -> None:
     from clipdeck.acquisition.domain import AcquisitionInput, SourceKind
     from clipdeck.acquisition.repository import SQLiteRepository

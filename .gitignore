@@ -6,7 +6,10 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.ruff_cache/
 .coverage
 htmlcov/
 data/
 .DS_Store
+.firecrawl/
+*.zip
